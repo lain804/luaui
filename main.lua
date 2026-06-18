@@ -16,6 +16,8 @@ local Theme = {
     Border = Color3.fromRGB(40, 40, 40)
 }
 
+local DEFAULT_MAX_SIZE = Vector2.new(10000, 10000)
+
 local function env()
     return (getgenv and getgenv()) or _G
 end
@@ -37,6 +39,36 @@ local function shallowCopy(t)
         out[k] = v
     end
     return out
+end
+
+local function normalizeVectorSize(value, fallback)
+    fallback = fallback or Vector2.new(0, 0)
+
+    if typeof(value) == "Vector2" then
+        return value
+    end
+
+    if typeof(value) == "UDim2" then
+        return Vector2.new(value.X.Offset, value.Y.Offset)
+    end
+
+    if type(value) == "table" then
+        local x = value.X or value.x or value.Width or value.width or value[1]
+        local y = value.Y or value.y or value.Height or value.height or value[2]
+        return Vector2.new(tonumber(x) or fallback.X, tonumber(y) or fallback.Y)
+    end
+
+    return fallback
+end
+
+local function clampVectorSize(size, minSize, maxSize)
+    minSize = minSize or Vector2.new(0, 0)
+    maxSize = maxSize or DEFAULT_MAX_SIZE
+
+    return Vector2.new(
+        math.clamp(size.X, minSize.X, maxSize.X),
+        math.clamp(size.Y, minSize.Y, maxSize.Y)
+    )
 end
 
 local Element = {}
@@ -908,6 +940,206 @@ function Tab:Dropdown(args)
     return element
 end
 
+function Tab:Keybind(args)
+    args = args or {}
+    local text = args.Text or "Keybind"
+    local callback = args.Callback
+    local changed = args.Changed or args.OnChanged
+    local flag = args.Flag or args.Save
+    local ignoreTextBox = args.IgnoreTextBox ~= false
+
+    local function normalizeKeyCode(value)
+        if typeof(value) == "EnumItem" and tostring(value):match("^Enum%.KeyCode%.") then
+            return value
+        end
+
+        if type(value) == "string" then
+            local name = value:match("^Enum%.KeyCode%.(.+)$") or value
+            local ok, keyCode = pcall(function()
+                return Enum.KeyCode[name]
+            end)
+            if ok and keyCode then
+                return keyCode
+            end
+        end
+
+        return nil
+    end
+
+    local default = normalizeKeyCode(args.Default or args.KeyCode or Enum.KeyCode.Unknown)
+    local saved, hadSaved = self:_GetSaved(flag, nil)
+    if hadSaved then
+        default = normalizeKeyCode(saved) or default
+    end
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Keybind"
+    frame.Parent = self.content
+    frame.BackgroundColor3 = Theme.Element
+    frame.BorderColor3 = Theme.Border
+    frame.BorderSizePixel = 1
+    frame.Size = UDim2.new(0.94, 0, 0, args.Height or 30)
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.Position = UDim2.new(0.5, 0, 0, 0)
+
+    local label = Instance.new("TextLabel")
+    label.Parent = frame
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.Size = UDim2.new(0.37, -10, 1, 0)
+    label.Font = Enum.Font.Code
+    label.Text = text
+    label.TextColor3 = Theme.Text
+    label.TextSize = args.TextSize or 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local button = Instance.new("TextButton")
+    button.Parent = frame
+    button.BackgroundColor3 = Theme.Background
+    button.BorderColor3 = Theme.Border
+    button.BorderSizePixel = 1
+    button.AnchorPoint = Vector2.new(1, 0)
+    button.Position = UDim2.new(1, -4, 0, 4)
+    button.Size = UDim2.new(0.55, -4, 1, -8)
+    button.Font = Enum.Font.Code
+    button.Text = ""
+    button.TextColor3 = Theme.Text
+    button.TextSize = args.TextSize or 13
+    button.TextXAlignment = Enum.TextXAlignment.Center
+    button.AutoButtonColor = false
+
+    local keyCode = default
+    local listening = false
+    local inputConnection = nil
+
+    local function keyName(value)
+        return value and value ~= Enum.KeyCode.Unknown and value.Name or "None"
+    end
+
+    local function render()
+        button.Text = listening and "Press a key..." or keyName(keyCode)
+        button.TextColor3 = listening and Theme.Accent or Theme.Text
+        frame.BackgroundColor3 = listening and Theme.ElementHover or Theme.Element
+    end
+
+    local function saveKey()
+        self:_SaveFlag(flag, keyName(keyCode))
+    end
+
+    local function setKey(newKeyCode, noCallback)
+        keyCode = normalizeKeyCode(newKeyCode) or Enum.KeyCode.Unknown
+        listening = false
+        render()
+        saveKey()
+        if changed and not noCallback then
+            task.spawn(changed, keyCode)
+        end
+    end
+
+    local function shouldIgnoreForTextBox()
+        return ignoreTextBox and UserInputService:GetFocusedTextBox() ~= nil
+    end
+
+    button.MouseEnter:Connect(function()
+        if not listening then
+            frame.BackgroundColor3 = Theme.ElementHover
+        end
+    end)
+
+    button.MouseLeave:Connect(function()
+        if not listening then
+            frame.BackgroundColor3 = Theme.Element
+        end
+    end)
+
+    button.MouseButton1Click:Connect(function()
+        listening = true
+        render()
+    end)
+
+    inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == Enum.KeyCode.Unknown then return end
+
+        if listening then
+            setKey(input.KeyCode)
+            return
+        end
+
+        if shouldIgnoreForTextBox() then return end
+        if keyCode and keyCode ~= Enum.KeyCode.Unknown and input.KeyCode == keyCode and callback then
+            task.spawn(callback, input)
+        end
+    end)
+
+    render()
+
+    local element = Element.new(self, frame, {
+        Type = "Keybind",
+        Flag = flag,
+        GetValue = function()
+            return keyCode
+        end,
+        SetValue = setKey,
+        Cleanup = function()
+            if inputConnection then
+                inputConnection:Disconnect()
+                inputConnection = nil
+            end
+        end
+    })
+    self:_BindFlag(flag, element)
+
+    if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and changed then
+        task.spawn(changed, keyCode)
+    end
+
+    self:_RefreshCanvas()
+    return element
+end
+
+function UILibrary:SetSize(width, height)
+    if not self.MainFrame then return end
+
+    local target
+    if typeof(width) == "UDim2" or typeof(width) == "Vector2" or type(width) == "table" then
+        target = normalizeVectorSize(width, self.MainFrame.AbsoluteSize)
+    else
+        target = Vector2.new(tonumber(width) or self.MainFrame.AbsoluteSize.X, tonumber(height) or self.MainFrame.AbsoluteSize.Y)
+    end
+
+    target = clampVectorSize(target, self.MinSize, self.MaxSize)
+    self.MainFrame.Size = UDim2.new(0, math.floor(target.X + 0.5), 0, math.floor(target.Y + 0.5))
+
+    for _, tab in ipairs(self.tabs or {}) do
+        if tab._RefreshCanvas then
+            tab:_RefreshCanvas()
+        end
+    end
+end
+
+function UILibrary:GetSize()
+    if not self.MainFrame then
+        return Vector2.new(0, 0)
+    end
+
+    return self.MainFrame.AbsoluteSize
+end
+
+function UILibrary:SetResizeBounds(minSize, maxSize)
+    self.MinSize = normalizeVectorSize(minSize, self.MinSize or Vector2.new(420, 300))
+    self.MaxSize = normalizeVectorSize(maxSize, self.MaxSize or DEFAULT_MAX_SIZE)
+    self:SetSize(self.MainFrame and self.MainFrame.AbsoluteSize or self.MinSize)
+end
+
+function UILibrary:SetResizable(enabled)
+    self.ResizeEnabled = enabled ~= false
+    if self.ResizeHandle then
+        self.ResizeHandle.Visible = self.ResizeEnabled
+    end
+end
+
 function UILibrary.new(args)
     args = args or {}
     local self = setmetatable({}, UILibrary)
@@ -920,6 +1152,10 @@ function UILibrary.new(args)
     self.AutoSave = args.AutoSave ~= false
     self.TabScrollBarThickness = args.TabScrollBarThickness or 4
     self.TabPadding = args.TabPadding or 0
+    self.ResizeEnabled = args.ResizeEnabled ~= false
+    self.MinSize = normalizeVectorSize(args.MinSize, Vector2.new(420, 300))
+    self.MaxSize = normalizeVectorSize(args.MaxSize, DEFAULT_MAX_SIZE)
+    self.ResizeHandleSize = args.ResizeHandleSize or 16
 
     if self.ConfigFolder then
         local makefolder = getEnvFunction("makefolder")
@@ -958,9 +1194,12 @@ function UILibrary.new(args)
     self.MainFrame.BorderColor3 = Theme.Border
     self.MainFrame.BorderSizePixel = 1
     self.MainFrame.Position = args.Position or UDim2.new(0, 100, 0, 100)
-    self.MainFrame.Size = args.Size or UDim2.new(0, 650, 0, 450)
+    self.MainFrame.Size = args.Size or UDim2.new(0, 600, 0, 400)
     self.MainFrame.Visible = true
     self.MainFrame.ClipsDescendants = true
+    if not args.Size or (typeof(args.Size) == "UDim2" and args.Size.X.Scale == 0 and args.Size.Y.Scale == 0) then
+        self:SetSize(self.MainFrame.Size)
+    end
 
     self.TitleBar = Instance.new("Frame")
     self.TitleBar.Name = "TitleBar"
@@ -1027,12 +1266,39 @@ function UILibrary.new(args)
     self.ContentArea.ClipsDescendants = true
     self.ContentArea.ZIndex = 1
 
+    self.ResizeHandle = Instance.new("TextButton")
+    self.ResizeHandle.Name = "ResizeHandle"
+    self.ResizeHandle.Parent = self.MainFrame
+    self.ResizeHandle.BackgroundColor3 = Theme.Border
+    self.ResizeHandle.BackgroundTransparency = 0.25
+    self.ResizeHandle.BorderSizePixel = 0
+    self.ResizeHandle.AnchorPoint = Vector2.new(1, 1)
+    self.ResizeHandle.Position = UDim2.new(1, 0, 1, 0)
+    self.ResizeHandle.Size = UDim2.new(0, self.ResizeHandleSize, 0, self.ResizeHandleSize)
+    self.ResizeHandle.Text = ""
+    self.ResizeHandle.AutoButtonColor = false
+    self.ResizeHandle.Visible = self.ResizeEnabled
+    self.ResizeHandle.ZIndex = 10
+
+    local handleCorner = Instance.new("Frame")
+    handleCorner.Name = "CornerMark"
+    handleCorner.Parent = self.ResizeHandle
+    handleCorner.BackgroundColor3 = Theme.Accent
+    handleCorner.BorderSizePixel = 0
+    handleCorner.AnchorPoint = Vector2.new(1, 1)
+    handleCorner.Position = UDim2.new(1, -3, 1, -3)
+    handleCorner.Size = UDim2.new(0, 6, 0, 6)
+    handleCorner.ZIndex = 11
+
     self.tabs = {}
     self.currentTab = nil
 
     local dragging = false
+    local resizing = false
     local dragStart = nil
     local startPos = nil
+    local resizeStart = nil
+    local startSize = nil
 
     self.TitleBar.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -1042,8 +1308,20 @@ function UILibrary.new(args)
         end
     end)
 
+    self.ResizeHandle.InputBegan:Connect(function(input)
+        if not self.ResizeEnabled then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = true
+            resizeStart = input.Position
+            startSize = self.MainFrame.AbsoluteSize
+        end
+    end)
+
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - resizeStart
+            self:SetSize(startSize.X + delta.X, startSize.Y + delta.Y)
+        elseif dragging and not resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
             local delta = input.Position - dragStart
             self.MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
@@ -1051,6 +1329,7 @@ function UILibrary.new(args)
 
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing = false
             dragging = false
         end
     end)
