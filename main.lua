@@ -1063,7 +1063,7 @@ function Tab:Keybind(args)
         if input.KeyCode == Enum.KeyCode.Unknown then return end
 
         if listening then
-            if input.KeyCode == Enum.KeyCode.Escape then
+            if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
                 setKey(Enum.KeyCode.Unknown)
                 return
             end
