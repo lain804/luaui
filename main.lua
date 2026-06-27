@@ -852,6 +852,7 @@ function Tab:Dropdown(args)
 
     local isOpen = false
     local outsideConnection = nil
+    local placeConnections = {}
 
     local function pointInside(gui, pos)
         if not gui or not gui.Parent then return false end
@@ -887,6 +888,10 @@ function Tab:Dropdown(args)
             outsideConnection:Disconnect()
             outsideConnection = nil
         end
+        for _, connection in ipairs(placeConnections) do
+            connection:Disconnect()
+        end
+        table.clear(placeConnections)
     end
 
     outsideButton.MouseButton1Down:Connect(function()
@@ -900,6 +905,10 @@ function Tab:Dropdown(args)
         overlay.Visible = true
         dropdown.Visible = true
         arrow.Text = "^"
+        -- keep the list pinned to the button as it moves (scrolling the content,
+        -- dragging the window, resizing) instead of leaving it where it opened.
+        table.insert(placeConnections, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(placeDropdown))
+        table.insert(placeConnections, button:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeDropdown))
     end
 
     button.MouseButton1Down:Connect(function()
@@ -1268,6 +1277,11 @@ function UILibrary.new(args)
     -- semi-transparent background image, sits behind every other element.
     -- ScaleType.Stretch makes the asset fill the frame regardless of its native
     -- aspect ratio (Roblox does the stretching for us).
+    -- NOTE: the ScreenGui uses ZIndexBehavior.Global, so render order is decided
+    -- purely by ZIndex, not by hierarchy. The image must match MainFrame's ZIndex
+    -- (1) so it draws just above the frame's opaque fill; a lower value (e.g. 0)
+    -- would render it BEHIND the parent frame and it'd never be visible. Content
+    -- (also ZIndex 1) is deeper/later in the tree, so it still draws over the image.
     self.BackgroundTransparency = args.BackgroundTransparency or 0.5
     self.BackgroundImage = Instance.new("ImageLabel")
     self.BackgroundImage.Name = "Background"
@@ -1280,7 +1294,7 @@ function UILibrary.new(args)
     self.BackgroundImage.ScaleType = Enum.ScaleType.Stretch
     self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
     self.BackgroundImage.Visible = false
-    self.BackgroundImage.ZIndex = 0
+    self.BackgroundImage.ZIndex = 1
 
     self.TitleBar = Instance.new("Frame")
     self.TitleBar.Name = "TitleBar"
