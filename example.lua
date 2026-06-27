@@ -191,6 +191,46 @@ MiscTab:Label({
     Text = "Additional API demonstration"
 })
 
+MiscTab:Separator({ Text = "" })
+MiscTab:Label({ Text = "Background" })
+
+local backgroundAssetId = "rbxassetid://13476155084"
+
+local BackgroundIdBox = MiscTab:Textbox({
+    Text = "Background ID",
+    Placeholder = "rbxassetid://...",
+    Flag = "BackgroundId",
+    Default = backgroundAssetId,
+    Callback = function(value)
+        backgroundAssetId = value
+    end
+})
+
+MiscTab:Slider({
+    Text = "BG Transparency",
+    Flag = "BackgroundTransparency",
+    Min = 0,
+    Max = 100,
+    Default = 50,
+    Increment = 1,
+    Callback = function(value)
+        Library:SetBackgroundTransparency(value / 100)
+    end
+})
+
+MiscTab:Toggle({
+    Text = "Background Image",
+    Flag = "BackgroundEnabled",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            Library:SetBackground(backgroundAssetId)
+        else
+            Library:SetBackgroundEnabled(false)
+        end
+    end
+})
+
 MiscTab:Button({
     Text = "Set Small Window",
     Callback = function()

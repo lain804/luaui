@@ -274,14 +274,11 @@ function Tab:Button(args)
 
     button.MouseButton1Down:Connect(function()
         button.BackgroundColor3 = Theme.Element
+        if callback then task.spawn(callback) end
     end)
 
     button.MouseButton1Up:Connect(function()
         button.BackgroundColor3 = hovering and Theme.ElementHover or Theme.Element
-    end)
-
-    button.MouseButton1Click:Connect(function()
-        if callback then task.spawn(callback) end
     end)
 
     local element = Element.new(self, button, {
@@ -359,7 +356,7 @@ function Tab:Toggle(args)
         frame.BackgroundColor3 = Theme.Element
     end)
 
-    frame.MouseButton1Click:Connect(function()
+    frame.MouseButton1Down:Connect(function()
         setState(not state)
     end)
 
@@ -822,7 +819,7 @@ function Tab:Dropdown(args)
         optionButton.ZIndex = 52
         optionButtons[option] = optionButton
 
-        optionButton.MouseButton1Click:Connect(function()
+        optionButton.MouseButton1Down:Connect(function()
             if multiSelect then
                 local wasSelected = not not selected[option]
                 if wasSelected then
@@ -892,7 +889,7 @@ function Tab:Dropdown(args)
         end
     end
 
-    outsideButton.MouseButton1Click:Connect(function()
+    outsideButton.MouseButton1Down:Connect(function()
         closeDropdown()
     end)
 
@@ -905,7 +902,7 @@ function Tab:Dropdown(args)
         arrow.Text = "^"
     end
 
-    button.MouseButton1Click:Connect(function()
+    button.MouseButton1Down:Connect(function()
         if isOpen then
             closeDropdown()
         else
@@ -1052,7 +1049,7 @@ function Tab:Keybind(args)
         end
     end)
 
-    button.MouseButton1Click:Connect(function()
+    button.MouseButton1Down:Connect(function()
         listening = true
         render()
     end)
@@ -1144,6 +1141,69 @@ function UILibrary:SetResizable(enabled)
     end
 end
 
+-- accepts a number id, a "rbxassetid://..."/"rbxasset://..."/"http..." string,
+-- or a plain numeric string. all get normalized to a usable image string.
+local function normalizeImage(image)
+    if type(image) == "number" then
+        return "rbxassetid://" .. image
+    end
+
+    if type(image) == "string" then
+        if image:match("^rbxassetid://") or image:match("^rbxasset://") or image:match("^http") then
+            return image
+        end
+        local digits = image:match("^%s*(%d+)%s*$")
+        if digits then
+            return "rbxassetid://" .. digits
+        end
+        return image
+    end
+
+    return ""
+end
+
+-- show/hide the background while keeping the last image and transparency.
+function UILibrary:SetBackgroundEnabled(enabled)
+    if not self.BackgroundImage then return end
+
+    local on = enabled and self.BackgroundImage.Image ~= ""
+    self.BackgroundImage.Visible = on
+
+    -- the content area is normally opaque, which would hide the image. make it
+    -- transparent while the background is on so the image shows through behind
+    -- the controls, then restore it when off.
+    if self.ContentArea then
+        self.ContentArea.BackgroundTransparency = on and 1 or 0
+        self.ContentArea.BackgroundColor3 = Theme.Background
+    end
+end
+
+-- pass nil/false as the image to clear the background.
+function UILibrary:SetBackground(image, transparency)
+    if not self.BackgroundImage then return end
+
+    if image == nil or image == false then
+        self.BackgroundImage.Image = ""
+        self:SetBackgroundEnabled(false)
+        return
+    end
+
+    if transparency ~= nil then
+        self.BackgroundTransparency = transparency
+    end
+
+    self.BackgroundImage.Image = normalizeImage(image)
+    self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
+    self:SetBackgroundEnabled(true)
+end
+
+function UILibrary:SetBackgroundTransparency(transparency)
+    self.BackgroundTransparency = transparency or 0.5
+    if self.BackgroundImage then
+        self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
+    end
+end
+
 function UILibrary.new(args)
     args = args or {}
     local self = setmetatable({}, UILibrary)
@@ -1204,6 +1264,23 @@ function UILibrary.new(args)
     if not args.Size or (typeof(args.Size) == "UDim2" and args.Size.X.Scale == 0 and args.Size.Y.Scale == 0) then
         self:SetSize(self.MainFrame.Size)
     end
+
+    -- semi-transparent background image, sits behind every other element.
+    -- ScaleType.Stretch makes the asset fill the frame regardless of its native
+    -- aspect ratio (Roblox does the stretching for us).
+    self.BackgroundTransparency = args.BackgroundTransparency or 0.5
+    self.BackgroundImage = Instance.new("ImageLabel")
+    self.BackgroundImage.Name = "Background"
+    self.BackgroundImage.Parent = self.MainFrame
+    self.BackgroundImage.BackgroundTransparency = 1
+    self.BackgroundImage.BorderSizePixel = 0
+    self.BackgroundImage.Position = UDim2.new(0, 0, 0, 0)
+    self.BackgroundImage.Size = UDim2.new(1, 0, 1, 0)
+    self.BackgroundImage.Image = ""
+    self.BackgroundImage.ScaleType = Enum.ScaleType.Stretch
+    self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
+    self.BackgroundImage.Visible = false
+    self.BackgroundImage.ZIndex = 0
 
     self.TitleBar = Instance.new("Frame")
     self.TitleBar.Name = "TitleBar"
@@ -1344,6 +1421,11 @@ function UILibrary.new(args)
             self.MainFrame.Visible = not self.MainFrame.Visible
         end
     end)
+
+    local background = args.Background or args.BackgroundImage
+    if background then
+        self:SetBackground(background, args.BackgroundTransparency)
+    end
 
     return self
 end
@@ -1489,7 +1571,7 @@ function UILibrary:CreateTab(args)
         tab:_RefreshCanvas()
     end)
 
-    tab.button.MouseButton1Click:Connect(function()
+    tab.button.MouseButton1Down:Connect(function()
         self:SwitchTab(name)
     end)
 
