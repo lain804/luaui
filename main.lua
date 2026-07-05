@@ -524,6 +524,96 @@ function Tab:Slider(args)
     return element
 end
 
+function Tab:Meter(args)
+    args = args or {}
+    local text = args.Text or "Meter"
+    local min = args.Min or 0
+    local max = args.Max or 100
+    local default = args.Default
+    if default == nil then default = min end
+    if max == min then max = min + 1 end
+    local format = args.Format or args.ValueFormatter
+    local lowColor = args.LowColor or Color3.fromRGB(255, 85, 85)
+    local highColor = args.Color or args.HighColor or Theme.Accent
+
+    local frame = Instance.new("Frame")
+    frame.Name = "Meter"
+    frame.Parent = self.content
+    frame.BackgroundColor3 = Theme.Element
+    frame.BorderColor3 = Theme.Border
+    frame.BorderSizePixel = 1
+    frame.Size = UDim2.new(0.94, 0, 0, args.Height or 52)
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.Position = UDim2.new(0.5, 0, 0, 0)
+
+    local label = Instance.new("TextLabel")
+    label.Parent = frame
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 10, 0, 5)
+    label.Size = UDim2.new(1, -116, 0, 20)
+    label.Font = Enum.Font.Code
+    label.Text = text
+    label.TextColor3 = Theme.Text
+    label.TextSize = args.TextSize or 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Parent = frame
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Position = UDim2.new(1, -104, 0, 5)
+    valueLabel.Size = UDim2.new(0, 96, 0, 20)
+    valueLabel.Font = Enum.Font.Code
+    valueLabel.TextColor3 = Theme.Accent
+    valueLabel.TextSize = args.TextSize or 13
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    local meterBg = Instance.new("Frame")
+    meterBg.Parent = frame
+    meterBg.BackgroundColor3 = Theme.Background
+    meterBg.BorderColor3 = Theme.Border
+    meterBg.BorderSizePixel = 1
+    meterBg.Position = UDim2.new(0, 4, 0, 33)
+    meterBg.Size = UDim2.new(1, -8, 0, 15)
+
+    local meterFill = Instance.new("Frame")
+    meterFill.Parent = meterBg
+    meterFill.BackgroundColor3 = highColor
+    meterFill.BorderSizePixel = 0
+
+    local value = math.clamp(tonumber(default) or min, min, max)
+
+    local function getAlpha(v)
+        return math.clamp((v - min) / (max - min), 0, 1)
+    end
+
+    local function render()
+        local alpha = getAlpha(value)
+        if format then
+            valueLabel.Text = tostring(format(value, alpha))
+        else
+            valueLabel.Text = tostring(value)
+        end
+        meterFill.Size = UDim2.new(alpha, 0, 1, 0)
+        meterFill.BackgroundColor3 = lowColor:Lerp(highColor, alpha)
+    end
+
+    local function setValue(newValue)
+        value = math.clamp(tonumber(newValue) or min, min, max)
+        render()
+    end
+
+    render()
+
+    local element = Element.new(self, frame, {
+        Type = "Meter",
+        GetValue = function() return value end,
+        SetValue = setValue
+    })
+
+    self:_RefreshCanvas()
+    return element
+end
+
 function Tab:Label(args)
     args = args or {}
     local text = args.Text or ""
