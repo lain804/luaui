@@ -391,12 +391,43 @@ function Tab:Slider(args)
     if default == nil then default = min end
     if max == min then max = min + 1 end
     local callback = args.Callback
-    local increment = args.Increment or 1
+    local increment = tonumber(args.Increment) or 1
+    if increment <= 0 then
+        increment = 1
+    end
     local flag = args.Flag or args.Save
+
+    local function getDecimalPlaces(number)
+        local text = string.format("%.12f", math.abs(number)):gsub("0+$", "")
+        local decimals = text:match("%.(%d+)$")
+        return decimals and #decimals or 0
+    end
+
+    local decimalPlaces = args.Precision
+    if decimalPlaces == nil then
+        decimalPlaces = getDecimalPlaces(increment)
+    end
+    decimalPlaces = math.clamp(math.floor(tonumber(decimalPlaces) or 0), 0, 12)
+
+    local roundingScale = 10 ^ decimalPlaces
+
+    local function roundToPrecision(number)
+        if decimalPlaces == 0 then
+            return number >= 0 and math.floor(number + 0.5) or math.ceil(number - 0.5)
+        end
+
+        local scaled = number * roundingScale
+        return (scaled >= 0 and math.floor(scaled + 0.5) or math.ceil(scaled - 0.5)) / roundingScale
+    end
+
+    local function snapValue(number)
+        number = math.floor(number / increment + 0.5) * increment
+        return roundToPrecision(math.clamp(number, min, max))
+    end
 
     default = self:_GetSaved(flag, default)
     default = tonumber(default) or min
-    default = math.clamp(default, min, max)
+    default = snapValue(default)
 
     local frame = Instance.new("Frame")
     frame.Name = "Slider"
@@ -473,8 +504,7 @@ function Tab:Slider(args)
 
     local function setValue(newValue, noCallback)
         local numberValue = tonumber(newValue) or min
-        numberValue = math.floor(numberValue / increment + 0.5) * increment
-        value = math.clamp(numberValue, min, max)
+        value = snapValue(numberValue)
         render()
         self:_SaveFlag(flag, value)
         if callback and not noCallback then
