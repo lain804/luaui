@@ -994,14 +994,40 @@ function Tab:Dropdown(args)
         local buttonPos = button.AbsolutePosition
         local buttonSize = button.AbsoluteSize
         local mainPos = main.AbsolutePosition
+        local mainSize = main.AbsoluteSize
+        local gap = 2
 
+        -- The overlay is a child of MainFrame, which clips descendants. Work in
+        -- MainFrame-local coordinates so the decision matches the actual clipping
+        -- bounds rather than the top of the screen.
         local x = buttonPos.X - mainPos.X
-        local aboveY = buttonPos.Y - dropdownHeight - 2
-        local belowY = buttonPos.Y + buttonSize.Y + 2
-        local finalY = aboveY >= 0 and aboveY or belowY
+        local buttonY = buttonPos.Y - mainPos.Y
+        local spaceAbove = math.max(0, buttonY - gap)
+        local spaceBelow = math.max(0, mainSize.Y - (buttonY + buttonSize.Y) - gap)
 
-        dropdown.Size = UDim2.new(0, buttonSize.X, 0, dropdownHeight)
-        dropdown.Position = UDim2.new(0, x, 0, finalY - mainPos.Y)
+        local openAbove
+        if dropdownHeight <= spaceBelow then
+            openAbove = false
+        elseif dropdownHeight <= spaceAbove then
+            openAbove = true
+        else
+            openAbove = spaceAbove > spaceBelow
+        end
+
+        -- If neither direction can hold the full list, use the roomier side and
+        -- let the existing ScrollingFrame expose the remaining options.
+        local availableHeight = openAbove and spaceAbove or spaceBelow
+        local visibleHeight = math.min(dropdownHeight, availableHeight)
+        local y = openAbove
+            and (buttonY - gap - visibleHeight)
+            or (buttonY + buttonSize.Y + gap)
+
+        -- Keep the list inside the frame horizontally too, for narrow/resized UIs.
+        local visibleWidth = math.min(buttonSize.X, mainSize.X)
+        x = math.clamp(x, 0, math.max(0, mainSize.X - visibleWidth))
+
+        dropdown.Size = UDim2.new(0, visibleWidth, 0, visibleHeight)
+        dropdown.Position = UDim2.new(0, x, 0, y)
     end
 
     closeDropdown = function()
@@ -1035,6 +1061,7 @@ function Tab:Dropdown(args)
         -- dragging the window, resizing) instead of leaving it where it opened.
         table.insert(placeConnections, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(placeDropdown))
         table.insert(placeConnections, button:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeDropdown))
+        table.insert(placeConnections, self.library.MainFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(placeDropdown))
     end
 
     button.MouseButton1Down:Connect(function()
