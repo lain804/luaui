@@ -86,6 +86,8 @@ function Element.new(tab, instance, data)
     self.Flag = data.Flag
     self._getValue = data.GetValue or data.Get
     self._setValue = data.SetValue or data.Set
+    self._getOptions = data.GetOptions
+    self._setOptions = data.SetOptions
     self._cleanup = data.Cleanup
     self._onHide = data.OnHide
     self._onShow = data.OnShow
@@ -178,6 +180,19 @@ end
 
 function Element:Get()
     return self:GetValue()
+end
+
+function Element:SetOptions(options, noCallback)
+    if self._setOptions then
+        self._setOptions(options, noCallback)
+    end
+end
+
+function Element:GetOptions()
+    if self._getOptions then
+        return self._getOptions()
+    end
+    return nil
 end
 
 local Tab = {}
@@ -711,7 +726,7 @@ end
 function Tab:Dropdown(args)
     args = args or {}
     local text = args.Text or "Dropdown"
-    local options = args.Options or {}
+    local options = shallowCopy(args.Options or {})
     local default = args.Default or {}
     local multiSelect = args.Multi or false
     local callback = args.Callback
@@ -891,11 +906,11 @@ function Tab:Dropdown(args)
     end
 
     local function repaintOptions()
-        for option, optionButton in pairs(optionButtons) do
-            local isSelected = selected[option] == true
+        for _, item in ipairs(optionButtons) do
+            local isSelected = selected[item.Option] == true
 
-            optionButton.TextColor3 = isSelected and Theme.Accent or Theme.Text
-            optionButton.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
+            item.Button.TextColor3 = isSelected and Theme.Accent or Theme.Text
+            item.Button.BackgroundColor3 = isSelected and Theme.ElementHover or Theme.Background
         end
     end
 
@@ -927,53 +942,6 @@ function Tab:Dropdown(args)
             end
         end
         updateDisplay(noCallback)
-    end
-
-    for i, option in ipairs(options) do
-        local optionButton = Instance.new("TextButton")
-        optionButton.Name = "Option" .. i
-        optionButton.Parent = scrollFrame
-        optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
-        optionButton.BorderSizePixel = 0
-        optionButton.Size = UDim2.new(1, 0, 0, 23)
-        optionButton.Font = Enum.Font.Code
-        optionButton.Text = " ".. option
-        optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
-        optionButton.TextSize = args.TextSize or 13
-        optionButton.TextXAlignment = Enum.TextXAlignment.Left
-        optionButton.AutoButtonColor = false
-        optionButton.ZIndex = 52
-        optionButtons[option] = optionButton
-
-        optionButton.MouseButton1Down:Connect(function()
-            if multiSelect then
-                local wasSelected = not not selected[option]
-                if wasSelected then
-                    selected[option] = nil
-                    for idx, v in ipairs(selectionOrder) do
-                        if v == option then
-                            table.remove(selectionOrder, idx)
-                            break
-                        end
-                    end
-                else
-                    selected[option] = true
-                    table.insert(selectionOrder, option)
-                end
-            else
-                table.clear(selected)
-                table.clear(selectionOrder)
-                selected[option] = true
-                table.insert(selectionOrder, option)
-                if closeDropdown then
-                    closeDropdown()
-                else
-                    dropdown.Visible = false
-                    arrow.Text = "v"
-                end
-            end
-            updateDisplay()
-        end)
     end
 
     local isOpen = false
@@ -1046,6 +1014,113 @@ function Tab:Dropdown(args)
         table.clear(placeConnections)
     end
 
+    local function createOptionButton(option, index)
+        local optionButton = Instance.new("TextButton")
+        optionButton.Name = "Option" .. index
+        optionButton.Parent = scrollFrame
+        optionButton.BackgroundColor3 = selected[option] and Theme.ElementHover or Theme.Background
+        optionButton.BorderSizePixel = 0
+        optionButton.Size = UDim2.new(1, 0, 0, 23)
+        optionButton.Font = Enum.Font.Code
+        optionButton.Text = " " .. option
+        optionButton.TextColor3 = selected[option] and Theme.Accent or Theme.Text
+        optionButton.TextSize = args.TextSize or 13
+        optionButton.TextXAlignment = Enum.TextXAlignment.Left
+        optionButton.AutoButtonColor = false
+        optionButton.ZIndex = 52
+        table.insert(optionButtons, {
+            Option = option,
+            Button = optionButton
+        })
+
+        optionButton.MouseButton1Down:Connect(function()
+            if multiSelect then
+                local wasSelected = not not selected[option]
+                if wasSelected then
+                    selected[option] = nil
+                    for idx, value in ipairs(selectionOrder) do
+                        if value == option then
+                            table.remove(selectionOrder, idx)
+                            break
+                        end
+                    end
+                else
+                    selected[option] = true
+                    table.insert(selectionOrder, option)
+                end
+            else
+                table.clear(selected)
+                table.clear(selectionOrder)
+                selected[option] = true
+                table.insert(selectionOrder, option)
+                closeDropdown()
+            end
+            updateDisplay()
+        end)
+    end
+
+    local function rebuildOptionButtons()
+        for _, item in ipairs(optionButtons) do
+            item.Button:Destroy()
+        end
+        table.clear(optionButtons)
+
+        for index, option in ipairs(options) do
+            createOptionButton(option, index)
+        end
+
+        totalHeight = #options * optionHeight
+        dropdownHeight = math.min(totalHeight, maxHeight)
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(totalHeight, dropdownHeight))
+        scrollFrame.CanvasPosition = Vector2.new(0, 0)
+
+        if isOpen then
+            if #options == 0 then
+                closeDropdown()
+            else
+                placeDropdown()
+            end
+        else
+            dropdown.Size = UDim2.new(0, dropdown.Size.X.Offset, 0, dropdownHeight)
+        end
+    end
+
+    local function setOptions(newOptions, noCallback)
+        assert(type(newOptions) == "table", "Dropdown:SetOptions expects a table")
+
+        local previousSelection = getSelectedTable()
+        options = shallowCopy(newOptions)
+
+        table.clear(selected)
+        table.clear(selectionOrder)
+        for _, option in ipairs(previousSelection) do
+            if table.find(options, option) and not selected[option] then
+                selected[option] = true
+                table.insert(selectionOrder, option)
+                if not multiSelect then break end
+            end
+        end
+
+        rebuildOptionButtons()
+
+        local currentSelection = getSelectedTable()
+        local selectionChanged = #previousSelection ~= #currentSelection
+        if not selectionChanged then
+            for index, option in ipairs(previousSelection) do
+                if currentSelection[index] ~= option then
+                    selectionChanged = true
+                    break
+                end
+            end
+        end
+
+        -- Refresh and save every time, but only notify the callback when changing
+        -- the option list invalidated part of the current selection.
+        updateDisplay(noCallback or not selectionChanged)
+    end
+
+    rebuildOptionButtons()
+
     outsideButton.MouseButton1Down:Connect(function()
         closeDropdown()
     end)
@@ -1081,6 +1156,10 @@ function Tab:Dropdown(args)
             return multiSelect and getSelectedTable() or getSelectedTable()[1]
         end,
         SetValue = setSelected,
+        GetOptions = function()
+            return shallowCopy(options)
+        end,
+        SetOptions = setOptions,
         Cleanup = function()
             closeDropdown()
             if overlay then

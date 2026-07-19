@@ -139,6 +139,14 @@ MainTab:Button({
 })
 
 MainTab:Button({
+    Text = "Update Dropdown Options",
+    Callback = function()
+        ModeDropdown:SetOptions({ "Casual", "Hard", "Nightmare" })
+        StatusLabel:SetValue("Status: Dropdown options updated")
+    end
+})
+
+MainTab:Button({
     Text = "Print Current Values",
     Callback = function()
         print("Toggle:", AutoToggle:GetValue())
