@@ -109,11 +109,24 @@ local function shallowCopy(t)
     return out
 end
 
-local function sameFlagValue(left, right)
+local function copyFlagValue(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, item in pairs(value) do result[key] = copyFlagValue(item, seen) end
+    return result
+end
+
+local function sameFlagValue(left, right, seen)
     if left == right then return true end
     if type(left) ~= "table" or type(right) ~= "table" then return false end
+    seen = seen or {}
+    if seen[left] == right then return true end
+    seen[left] = right
     for key, value in pairs(left) do
-        if right[key] ~= value then return false end
+        if not sameFlagValue(value, right[key], seen) then return false end
     end
     for key in pairs(right) do
         if left[key] == nil then return false end
@@ -429,7 +442,7 @@ function Tab:_BindFlag(flag, element)
     if flag then
         assert(not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
         self.library.elementsByFlag[flag] = element
-        self.library.flags[flag] = element:_GetPersistedValue()
+        self.library:_StoreFlag(flag, element:_GetPersistedValue())
     end
 end
 
@@ -1555,7 +1568,7 @@ end
 
 function UILibrary:_SetSaveStatus(status)
     self.SaveStatus = status
-    if self.SaveIndicator then
+    if self.SaveIndicator and not self.Destroyed then
         self.SaveIndicator.Text = status == "Failed" and "Save failed" or status == "Recovered" and "Recovered" or ""
     end
 end
@@ -2152,7 +2165,7 @@ function UILibrary.new(args)
 end
 
 function UILibrary:GetFlag(flag)
-    return self.flags[flag]
+    return copyFlagValue(self.flags[flag])
 end
 
 function UILibrary:SetFlag(flag, value, noCallback)
@@ -2166,8 +2179,9 @@ function UILibrary:SetFlag(flag, value, noCallback)
 end
 
 function UILibrary:_StoreFlag(flag, value, immediate)
+    if self.Destroyed then return end
     if not sameFlagValue(self.flags[flag], value) then
-        self.flags[flag] = type(value) == "table" and shallowCopy(value) or value
+        self.flags[flag] = copyFlagValue(value)
         if not self._loading then
             self._configDirty = true
             self._configVersion = (self._configVersion or 0) + 1
@@ -2178,7 +2192,8 @@ function UILibrary:_StoreFlag(flag, value, immediate)
 end
 
 function UILibrary:_QueueSave(immediate)
-    if not self.AutoSave or self._loading or self.Destroyed then return end
+    if not self.AutoSave or self._loading or self.Destroyed or self._destroying then return end
+    if self._configBusy then return end
     if not getEnvFunction("writefile") then return end
     if immediate then
         self:SaveConfig()
@@ -2203,13 +2218,20 @@ end
 -- A pending save belongs to the old file. Finish it before changing destinations.
 function UILibrary:SetConfigFile(fileName)
     assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
+    if self.Destroyed or self._destroying or self._configBusy then return false end
     if (self._saveTask or self.AutoSave and self._configDirty) and not self:SaveConfig() then return false end
+    if self._configDirty and self.AutoSave then return false end
     self.ConfigFile = fileName
     self.ConfigPath = self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName
     return true
 end
 
 function UILibrary:SaveConfig()
+    if self.Destroyed and not self._flushOnDestroy then return false end
+    if self._configBusy then
+        if self._configBusy == "save" then self._saveAgain = true end
+        return false
+    end
     self._configDirty = true
     if self._saveTask then
         task.cancel(self._saveTask)
@@ -2222,38 +2244,50 @@ function UILibrary:SaveConfig()
         return false
     end
 
-    local version = self._configVersion or 0
-    local ok, encoded = pcall(function()
-        return HttpService:JSONEncode(self.flags)
-    end)
-    if not ok then
+    self._configBusy = "save"
+    local path = self.ConfigPath
+    local success, failure
+    repeat
+        local version = self._configVersion or 0
+        success, failure = pcall(function()
+            local encoded = HttpService:JSONEncode(self.flags)
+            if self._lastGoodConfig and self._lastGoodPath == path then
+                local backedUp, result = safeCall(writefile, path .. ".bak", self._lastGoodConfig)
+                assert(backedUp and result ~= false, "failed to write backup config")
+            end
+            local wrote, result = safeCall(writefile, path, encoded)
+            assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
+            self._lastGoodConfig, self._lastGoodPath = encoded, path
+        end)
+        self._configDirty = not success or (self._configVersion or 0) ~= version
+        -- A write already in flight may outlive Destroy. Flush the final edits
+        -- without recreating a timer or touching the destroyed GUI.
+    until not (success and self.Destroyed and self.AutoSave and self._configDirty)
+    self._configBusy = nil
+    self._flushOnDestroy = nil
+    local saveAgain = self._saveAgain
+    self._saveAgain = nil
+    if not success then
         self:_SetSaveStatus("Failed")
-        warn("UILibrary: failed to encode config")
+        warn("UILibrary: " .. tostring(failure))
         return false
     end
-
-    if self._lastGoodConfig and self._lastGoodPath == self.ConfigPath then
-        local backedUp, backupResult = safeCall(writefile, self.ConfigPath .. ".bak", self._lastGoodConfig)
-        if not backedUp or backupResult == false then
-            self:_SetSaveStatus("Failed")
-            warn("UILibrary: failed to write backup config")
-            return false
+    self:_SetSaveStatus("Ready")
+    if not self.Destroyed and self._configDirty then
+        if saveAgain and not self.AutoSave then
+            self._saveTask = task.defer(function()
+                self._saveTask = nil
+                if not self.Destroyed then self:SaveConfig() end
+            end)
+        else
+            self:_QueueSave()
         end
     end
-    local wrote, result = safeCall(writefile, self.ConfigPath, encoded)
-    if not wrote or result == false then
-        self:_SetSaveStatus("Failed")
-        warn("UILibrary: failed to write config to " .. tostring(self.ConfigPath))
-        return false
-    end
-
-    self._lastGoodConfig, self._lastGoodPath = encoded, self.ConfigPath
-    self:_SetSaveStatus("Ready")
-    self._configDirty = (self._configVersion or 0) ~= version
     return true
 end
 
 function UILibrary:LoadConfig(applyCallbacks)
+    if self.Destroyed or self._destroying or self._configBusy then return false end
     local readfile = getEnvFunction("readfile")
     local isfile = getEnvFunction("isfile")
     if not readfile then
@@ -2270,10 +2304,20 @@ function UILibrary:LoadConfig(applyCallbacks)
         local decodedOk, decoded = pcall(function() return HttpService:JSONDecode(data) end)
         if decodedOk and type(decoded) == "table" then return decoded, data end
     end
+    self._configBusy = "load"
+    local version = self._configVersion or 0
     local decoded, data = readConfig(self.ConfigPath)
     local recovered = false
     if not decoded then decoded, data = readConfig(self.ConfigPath .. ".bak"); recovered = decoded ~= nil end
-    if not decoded then return false end
+    if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
+        self._configBusy = nil
+        if self.Destroyed and self._flushOnDestroy then
+            self:SaveConfig()
+        elseif self._configDirty then
+            self:_QueueSave()
+        end
+        return false
+    end
     self._lastGoodConfig, self._lastGoodPath = data, self.ConfigPath
     self:_SetSaveStatus(recovered and "Recovered" or "Ready")
 
@@ -2282,8 +2326,8 @@ function UILibrary:LoadConfig(applyCallbacks)
         self._saveTask = nil
     end
     self._configDirty = false
-    self.flags = shallowCopy(decoded)
-    self.loadedFlags = shallowCopy(decoded)
+    self.flags = copyFlagValue(decoded)
+    self.loadedFlags = copyFlagValue(decoded)
     for _, tab in ipairs(self.tabs or {}) do
         for _, element in ipairs(tab.elements) do
             if element.Flag and decoded[element.Flag] == nil then
@@ -2304,6 +2348,7 @@ function UILibrary:LoadConfig(applyCallbacks)
         end
     end)
     self._loading = false
+    self._configBusy = nil
     if not okApply then
         warn("UILibrary: failed to apply config: " .. tostring(applyError))
         return false
@@ -2316,7 +2361,9 @@ function UILibrary:Destroy()
     if self.Destroyed or self._destroying then return end
     self._destroying = true
     self:_CancelInteractions()
-    if self.AutoSave and (self._saveTask or self._configDirty) then self:SaveConfig() end
+    if self.AutoSave and (self._saveTask or self._configDirty) then
+        if self._configBusy == "load" then self._flushOnDestroy = true else self:SaveConfig() end
+    end
     self.Destroyed = true
     disconnectAll(self._connections)
     for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
