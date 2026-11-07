@@ -681,8 +681,8 @@ function Tab:Slider(args)
         if number and snapValue(number) ~= value then setValue(number) else render() end
     end
     local function releaseEditing()
-        if not valueLabel:IsFocused() then return end
         commitValue()
+        if not valueLabel:IsFocused() then return end
         skipFocusLost = skipFocusLost + 1
         valueLabel:ReleaseFocus()
         valueLabel.BackgroundTransparency = 1
@@ -2599,15 +2599,17 @@ function Tab:Textbox(args)
     box.Focused:Connect(renderFocus)
 
     local skipFocusLost = 0
+    local committedText = box.Text
     local function commitText(enterPressed)
         local newText = box.Text or ""
+        committedText = newText
         self:_SaveFlag(flag, newText)
         dispatchCallback(self, frame, callback, newText, enterPressed)
     end
     local function releaseEditing()
         hovering = false
+        if box.Text ~= committedText then commitText(false) end
         if box:IsFocused() then
-            commitText(false)
             skipFocusLost = skipFocusLost + 1
             box:ReleaseFocus()
         end
@@ -2617,7 +2619,7 @@ function Tab:Textbox(args)
         renderFocus()
         if skipFocusLost > 0 then
             skipFocusLost = skipFocusLost - 1
-        else
+        elseif box.Text ~= committedText or enterPressed then
             commitText(enterPressed)
         end
     end)
@@ -2640,6 +2642,7 @@ function Tab:Textbox(args)
         GetValue = function() return box.Text end,
         SetValue = function(val, noCallback)
             box.Text = val == nil and "" or tostring(val)
+            committedText = box.Text
             self:_SaveFlag(flag, box.Text)
             if callback and not noCallback then
                 dispatchCallback(self, frame, callback, box.Text, false)
