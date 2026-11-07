@@ -1735,13 +1735,14 @@ function UILibrary:_FitViewport()
     local requested = self._requestedSize or Vector2.new(600, 400)
     if self._requestedScale then
         local size = self._requestedScale
-        requested = Vector2.new(viewport.X * size.X.Scale + size.X.Offset, viewport.Y * size.Y.Scale + size.Y.Offset)
+        requested = Vector2.new(finiteNumber(viewport.X * size.X.Scale + size.X.Offset, requested.X),
+            finiteNumber(viewport.Y * size.Y.Scale + size.Y.Offset, requested.Y))
     end
     local size = clampVectorSize(requested, minimum, maximum)
     self.MainFrame.Size = UDim2.new(0, math.floor(size.X), 0, math.floor(size.Y))
     local position = self.MainFrame.Position
-    local x = position.X.Scale * viewport.X + position.X.Offset
-    local y = position.Y.Scale * viewport.Y + position.Y.Offset
+    local x = finiteNumber(position.X.Scale * viewport.X + position.X.Offset, margin)
+    local y = finiteNumber(position.Y.Scale * viewport.Y + position.Y.Offset, margin)
     self.MainFrame.Position = UDim2.new(0, math.clamp(x, margin, math.max(margin, viewport.X - size.X - margin)),
         0, math.clamp(y, margin, math.max(margin, viewport.Y - size.Y - margin)))
     if self.Tooltip then self.Tooltip.Visible = false end
@@ -2206,7 +2207,10 @@ function UILibrary.new(args)
     self.ScreenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
         if not self.ScreenGui.Enabled then stopGestures(); self:_CancelInteractions() end
     end)
-    self.ScreenGui.Destroying:Connect(function() self:Destroy() end)
+    self.ScreenGui.Destroying:Connect(function()
+        self._screenDestroying = true
+        self:Destroy()
+    end)
     table.insert(self._connections, self.ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         stopGestures()
         self:_FitViewport()
@@ -2427,15 +2431,15 @@ function UILibrary:Destroy()
     self.Destroyed = true
     disconnectAll(self._connections)
     for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
-    if self.ScreenGui then self.ScreenGui:Destroy() end
+    if self.ScreenGui and not self._screenDestroying then self.ScreenGui:Destroy() end
 end
 
 function Tab:RemoveTab()
     if self.Destroyed then return end
     self.Destroyed = true
     for index = #self.elements, 1, -1 do self.elements[index]:Remove() end
-    self.button:Destroy()
-    self.content:Destroy()
+    if not self._buttonDestroying then self.button:Destroy() end
+    if not self._contentDestroying then self.content:Destroy() end
     for i, item in ipairs(self.library.tabs) do
         if item == self then
             table.remove(self.library.tabs, i)
@@ -2508,6 +2512,14 @@ function UILibrary:CreateTab(args)
     tab.content.Visible = false
     tab.content.ClipsDescendants = true
     tab.content.ZIndex = 1
+    tab.button.Destroying:Connect(function()
+        tab._buttonDestroying = true
+        tab:RemoveTab()
+    end)
+    tab.content.Destroying:Connect(function()
+        tab._contentDestroying = true
+        tab:RemoveTab()
+    end)
 
     local layout = Instance.new("UIListLayout")
     layout.Parent = tab.content
