@@ -35,7 +35,8 @@ local function normalizeRange(minimum, maximum)
     minimum = finiteNumber(minimum, 0)
     maximum = finiteNumber(maximum, 100)
     if maximum < minimum then minimum, maximum = maximum, minimum end
-    if maximum == minimum then maximum = minimum + 1 end
+    if maximum == minimum then maximum = minimum + math.max(1, math.abs(minimum) * 1e-6) end
+    if not finiteNumber(maximum - minimum, nil) or maximum <= minimum then return 0, 100 end
     return minimum, maximum
 end
 
@@ -586,13 +587,15 @@ function Tab:Slider(args)
         end
 
         local scaled = number * roundingScale
+        if not finiteNumber(scaled, nil) then return number end
         return (scaled >= 0 and math.floor(scaled + 0.5) or math.ceil(scaled - 0.5)) / roundingScale
     end
 
     local function snapValue(number)
         if number <= min then return min end
         if number >= max then return max end
-        number = min + math.floor((number - min) / increment + 0.5) * increment
+        local steps = (number - min) / increment
+        if finiteNumber(steps, nil) then number = min + math.floor(steps + 0.5) * increment end
         return math.clamp(roundToPrecision(number), min, max)
     end
 
