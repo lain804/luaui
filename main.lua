@@ -166,11 +166,23 @@ local function clampVectorSize(size, minSize, maxSize)
     )
 end
 
+local function isVisible(library, object)
+    if library.Destroyed or library._destroying or not library.ScreenGui.Enabled then return false end
+    while object and object ~= library.ScreenGui do
+        if object:IsA("GuiObject") and not object.Visible then return false end
+        object = object.Parent
+    end
+    return object == library.ScreenGui
+end
+
 local function bindActivation(library, button, callback)
     library._activationHandlers = library._activationHandlers or {}
-    library._activationHandlers[button] = callback
+    local function activate(...)
+        if isVisible(library, button) then callback(...) end
+    end
+    library._activationHandlers[button] = activate
     button.Destroying:Connect(function() library._activationHandlers[button] = nil end)
-    return button.Activated:Connect(callback)
+    return button.Activated:Connect(activate)
 end
 
 -- User code runs after the control has finished updating. It may remove controls,
@@ -193,7 +205,7 @@ local function createRow(tab, className, name, height, minimumHeight)
     row.BackgroundColor3 = Theme.Element
     row.BorderColor3 = Theme.Border
     row.BorderSizePixel = 1
-    row.Size = UDim2.new(1, 0, 0, math.max(UserInputService.TouchEnabled and 44 or minimumHeight, finiteNumber(height, minimumHeight)))
+    row.Size = UDim2.new(1, 0, 0, math.max(minimumHeight, UserInputService.TouchEnabled and 44 or 0, finiteNumber(height, minimumHeight)))
     row.AnchorPoint = Vector2.new(0.5, 0)
     row.Position = UDim2.new(0.5, 0, 0, 0)
     return row
@@ -203,6 +215,7 @@ local function createLabel(parent, text, textSize)
     local label = Instance.new("TextLabel")
     label.Parent = parent
     label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
     label.Font = Enum.Font.Code
     label.Text = text
     label.TextColor3 = Theme.Text
@@ -709,7 +722,7 @@ function Tab:Slider(args)
     end
 
     detector.InputBegan:Connect(function(input)
-        if dragging then return end
+        if dragging or not isVisible(self.library, detector) then return end
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
             and input.UserInputType ~= Enum.UserInputType.Touch then return end
         dragging = true
@@ -719,6 +732,8 @@ function Tab:Slider(args)
     end)
 
     table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+        if dragging and (not isVisible(self.library, detector)
+            or input == pointer and input.UserInputState == Enum.UserInputState.Cancel) then stopDragging(); return end
         if dragging and (input == pointer or pointer.UserInputType == Enum.UserInputType.MouseButton1
             and input.UserInputType == Enum.UserInputType.MouseMovement) then
             updateSlider(input.Position)
@@ -1533,7 +1548,7 @@ function Tab:Keybind(args)
     end)
 
     inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if self.Destroyed or self.library.Destroyed or not frame.Parent then return end
+        if self.Destroyed or self.library.Destroyed or not self.library.ScreenGui.Enabled or not frame.Parent then return end
         if self.library._closeDropdown then return end
         if self.library._capturedInput == input then return end
         if self.library._cancelKeybind and not listening then return end
@@ -1605,7 +1620,8 @@ function UILibrary:_FocusStep(direction)
                     local objects = element.Instance:GetDescendants()
                     table.insert(objects, 1, element.Instance)
                     for _, object in ipairs(objects) do
-                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false then
+                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false
+                            and isVisible(self, object) then
                             table.insert(targets, object)
                         end
                     end
@@ -1635,15 +1651,15 @@ end
 function UILibrary:_DecorateObject(object)
     if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or object:IsA("TextBox")) then
         object.Selectable = true
-        object.SelectionGained:Connect(function()
-            local border = object.BorderColor3
-            object.BorderColor3 = Theme.Accent
-            local connection
-            connection = object.SelectionLost:Connect(function()
-                object.BorderColor3 = border
-                connection:Disconnect()
-            end)
-        end)
+        local outline = Instance.new("UIStroke")
+        outline.Name = "FocusOutline"
+        outline.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        outline.Color = Theme.Accent
+        outline.Thickness = 1
+        outline.Enabled = false
+        outline.Parent = object
+        object.SelectionGained:Connect(function() outline.Enabled = true end)
+        object.SelectionLost:Connect(function() outline.Enabled = false end)
     end
     if not (object:IsA("TextLabel") or object:IsA("TextButton")) then return end
     local pending
@@ -1709,8 +1725,8 @@ end
 function UILibrary:_FitViewport()
     if self.Destroyed or not self.MainFrame or self.ScreenGui.AbsoluteSize.X <= 0 then return end
     local viewport, margin, cap = self:_ViewportBounds()
-    local maximum = Vector2.new(math.min(cap.X, math.max(self.MinSize.X, self.MaxSize.X)),
-        math.min(cap.Y, math.max(self.MinSize.Y, self.MaxSize.Y)))
+    local maximum = Vector2.new(math.min(cap.X, math.max(1, self.MinSize.X, self.MaxSize.X)),
+        math.min(cap.Y, math.max(1, self.MinSize.Y, self.MaxSize.Y)))
     local minimum = Vector2.new(math.min(maximum.X, math.max(1, self.MinSize.X)),
         math.min(maximum.Y, math.max(1, self.MinSize.Y)))
     self.SizeConstraint.MinSize = Vector2.new(0, 0)
@@ -1758,7 +1774,9 @@ function UILibrary:SetResizeBounds(minSize, maxSize)
 end
 
 function UILibrary:SetResizable(enabled)
+    if self.Destroyed then return end
     self.ResizeEnabled = enabled ~= false
+    if not self.ResizeEnabled and self._stopGestures then self._stopGestures() end
     if self.ResizeHandle then
         self.ResizeHandle.Visible = self.ResizeEnabled
     end
@@ -1868,9 +1886,9 @@ end
 
 -- show/hide the background while keeping the last image and transparency.
 function UILibrary:SetBackgroundEnabled(enabled)
-    if not self.BackgroundImage then return end
+    if self.Destroyed or not self.BackgroundImage then return end
 
-    local on = enabled and self.BackgroundImage.Image ~= ""
+    local on = not not enabled and self.BackgroundImage.Image ~= ""
     self.BackgroundEnabled = on
     self.BackgroundImage.Visible = on
 
@@ -1970,6 +1988,7 @@ function UILibrary.new(args)
     self.MainFrame.Position = args.Position or UDim2.new(0, 100, 0, 100)
     self.MainFrame.Size = args.Size or UDim2.new(0, 600, 0, 400)
     self.MainFrame.Visible = true
+    self.MainFrame.Active = true
     self.MainFrame.ClipsDescendants = true
     self.SizeConstraint = Instance.new("UISizeConstraint")
     self.SizeConstraint.Parent = self.MainFrame
@@ -2077,6 +2096,7 @@ function UILibrary.new(args)
     self.ResizeHandle.Size = UDim2.new(0, self.ResizeHandleSize, 0, self.ResizeHandleSize)
     self.ResizeHandle.Text = ""
     self.ResizeHandle.AutoButtonColor = false
+    self.ResizeHandle.Selectable = false
     self.ResizeHandle.Visible = self.ResizeEnabled
     self.ResizeHandle.ZIndex = 10
 
@@ -2099,23 +2119,27 @@ function UILibrary.new(args)
         dragging, resizing = false, false
         pointer = nil
     end
+    self._stopGestures = stopGestures
     local function isPointer(input)
         return input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch
     end
     self.TitleBar.Active = true
     self.TitleBar.InputBegan:Connect(function(input)
-        if dragging or resizing or not isPointer(input) then return end
+        if dragging or resizing or not isPointer(input) or not isVisible(self, self.TitleBar) then return end
         dragging = true
         pointer, dragStart, startPos = input, input.Position, self.MainFrame.Position
     end)
     self.ResizeHandle.InputBegan:Connect(function(input)
-        if dragging or resizing or not self.ResizeEnabled or not isPointer(input) then return end
+        if dragging or resizing or not self.ResizeEnabled or not isPointer(input)
+            or not isVisible(self, self.ResizeHandle) then return end
         resizing = true
         pointer, resizeStart, startSize = input, input.Position, self.MainFrame.AbsoluteSize
     end)
     table.insert(self._connections, UserInputService.InputChanged:Connect(function(input)
         if not pointer then return end
+        if not isVisible(self, self.MainFrame)
+            or input == pointer and input.UserInputState == Enum.UserInputState.Cancel then stopGestures(); return end
         if input ~= pointer and not (pointer.UserInputType == Enum.UserInputType.MouseButton1
             and input.UserInputType == Enum.UserInputType.MouseMovement) then return end
         if resizing and self.ResizeEnabled then
@@ -2139,6 +2163,7 @@ function UILibrary.new(args)
         self:_CancelInteractions()
     end))
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if self.Destroyed or not self.ScreenGui.Enabled then return end
         if self._closeDropdown or self._cancelKeybind then return end
         local focused = UserInputService:GetFocusedTextBox()
         if focused and not focused:IsDescendantOf(self.MainFrame) then return end
@@ -2444,6 +2469,7 @@ function UILibrary:CreateTab(args)
     tab.button.TextSize = args.TextSize or 13
     tab.button.AutoButtonColor = false
     tab.button.TextTruncate = Enum.TextTruncate.AtEnd
+    self:_DecorateObject(tab.button)
     self._tabOrder = (self._tabOrder or 0) + 1
     tab.button.LayoutOrder = self._tabOrder
     tab.button.ZIndex = 3
