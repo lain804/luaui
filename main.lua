@@ -1788,15 +1788,19 @@ end
 -- "penar.png" -> getcustomasset("penar.png").
 local function normalizeImage(image)
     if type(image) == "number" then
-        return "rbxassetid://" .. image
+        if not finiteNumber(image, nil) or image <= 0 or image % 1 ~= 0 then return "" end
+        return "rbxassetid://" .. string.format("%.0f", image)
     end
 
     if type(image) ~= "string" then
         return ""
     end
+    image = image:match("^%s*(.-)%s*$")
+    if image == "" then return "" end
 
     -- already a roblox content string ("rbxasset://" / "rbxassetid://") -> use directly
-    if string.find(image, "rbxasset", 1, true) then
+    if image:match("^rbxasset://") or image:match("^rbxassetid://")
+        or image:match("^rbxthumb://") or image:match("^rbxgameasset://") then
         return image
     end
 
@@ -1878,6 +1882,7 @@ function UILibrary:_applyChromeTransparency(on, root)
 end
 
 function UILibrary:SetElementTransparency(transparency)
+    if self.Destroyed then return end
     self.ElementTransparency = math.clamp(finiteNumber(transparency, 0.3), 0, 1)
     if self.BackgroundEnabled then
         self:_applyChromeTransparency(true)
@@ -1887,6 +1892,7 @@ end
 -- show/hide the background while keeping the last image and transparency.
 function UILibrary:SetBackgroundEnabled(enabled)
     if self.Destroyed or not self.BackgroundImage then return end
+    self._backgroundVersion = (self._backgroundVersion or 0) + 1
 
     local on = not not enabled and self.BackgroundImage.Image ~= ""
     self.BackgroundEnabled = on
@@ -1907,7 +1913,9 @@ end
 
 -- pass nil/false as the image to clear the background.
 function UILibrary:SetBackground(image, transparency)
-    if not self.BackgroundImage then return end
+    if self.Destroyed or not self.BackgroundImage then return end
+    self._backgroundVersion = (self._backgroundVersion or 0) + 1
+    local version = self._backgroundVersion
 
     if image == nil or image == false then
         self.BackgroundImage.Image = ""
@@ -1915,16 +1923,20 @@ function UILibrary:SetBackground(image, transparency)
         return
     end
 
+    -- getcustomasset may yield. A newer image or enable/disable request wins.
+    local normalized = normalizeImage(image)
+    if self.Destroyed or version ~= self._backgroundVersion then return end
     if transparency ~= nil then
         self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
     end
 
-    self.BackgroundImage.Image = normalizeImage(image)
+    self.BackgroundImage.Image = normalized
     self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
     self:SetBackgroundEnabled(true)
 end
 
 function UILibrary:SetBackgroundTransparency(transparency)
+    if self.Destroyed then return end
     self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
     if self.BackgroundImage then
         self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
