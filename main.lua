@@ -1137,6 +1137,7 @@ function Tab:Dropdown(args)
         if not isOpen then button.BorderColor3 = Theme.Border end
     end)
 
+    local closeDropdown
     local function placeDropdown()
         local main = self.library.MainFrame
         if not main then return end
@@ -1146,6 +1147,12 @@ function Tab:Dropdown(args)
         local mainPos = main.AbsolutePosition
         local mainSize = main.AbsoluteSize
         local gap = 2
+        local contentPos, contentSize = self.content.AbsolutePosition, self.content.AbsoluteSize
+        if buttonPos.Y + buttonSize.Y <= contentPos.Y
+            or buttonPos.Y >= contentPos.Y + contentSize.Y then
+            closeDropdown()
+            return
+        end
 
         -- The overlay is a child of MainFrame, which clips descendants. Work in
         -- MainFrame-local coordinates so the decision matches the actual clipping
@@ -1180,7 +1187,7 @@ function Tab:Dropdown(args)
         dropdown.Position = UDim2.new(0, x, 0, y)
     end
 
-    local function closeDropdown()
+    closeDropdown = function()
         if not isOpen then return end
         isOpen = false
         activeIndex = nil
@@ -1392,6 +1399,7 @@ function Tab:Dropdown(args)
             end
         end))
         placeDropdown()
+        if not isOpen then return end
         overlay.Visible = true
         dropdown.Visible = true
         focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1])
