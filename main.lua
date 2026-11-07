@@ -92,8 +92,9 @@ local function bindButtonFeedback(button)
 end
 
 local function getEnvFunction(name)
-    local environment = (getgenv and getgenv()) or _G
-    return environment[name] or rawget(_G, name)
+    local environment = (getgenv and getgenv()) or getfenv()
+    local fn = environment[name] or rawget(_G, name)
+    return type(fn) == "function" and fn or nil
 end
 
 local function safeCall(fn, ...)
