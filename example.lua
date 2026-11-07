@@ -1,3 +1,4 @@
+-- Executor: run with HttpGet/loadstring enabled. In Studio, use require(path.to.MainModule).
 local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/refs/heads/master/main.lua"))()
 
 local Library = UI.new({
@@ -5,7 +6,7 @@ local Library = UI.new({
     Size = UDim2.new(0, 600, 0, 400),
     Position = UDim2.new(0, 100, 0, 100),
     GuiName = "UILibraryShowcase",
-    ConfigFile = "ShowcaseConfig.json",
+    -- Defaults to UILibraryShowcase.json; ConfigFile can override it here.
     ConfigFolder = "UILibraryExamples",
     AutoSave = true,
     AutoLoad = true,
@@ -13,6 +14,8 @@ local Library = UI.new({
     MinSize = Vector2.new(420, 300),
     MaxSize = Vector2.new(780, 560)
 })
+
+-- Optional runtime override: Library:SetConfigFile("CustomShowcase.json")
 
 local MainTab = Library:CreateTab({ Name = "Main" })
 local ConfigTab = Library:CreateTab({ Name = "Config" })
@@ -22,11 +25,11 @@ local StatusLabel = MainTab:Label({
     Text = "Status: Ready"
 })
 
-local InfoLabel = MainTab:Label({
+MainTab:Label({
     Text = "This example uses only real methods from the library."
 })
 
-local ClickButton = MainTab:Button({
+MainTab:Button({
     Text = "Click Me",
     Callback = function()
         print("Button clicked")
@@ -97,9 +100,7 @@ local ActionKeybind = MainTab:Keybind({
     end
 })
 
-MainTab:Separator({
-    Text = ""
-})
+MainTab:Separator()
 
 MainTab:Button({
     Text = "Hide Textbox",
@@ -166,6 +167,7 @@ ConfigTab:Button({
     Callback = function()
         local ok = Library:SaveConfig()
         print("SaveConfig:", ok)
+        StatusLabel:SetValue(ok and "Status: Config saved" or "Status: Save failed (file API unavailable?)")
     end
 })
 
@@ -174,6 +176,7 @@ ConfigTab:Button({
     Callback = function()
         local ok = Library:LoadConfig(true)
         print("LoadConfig:", ok)
+        StatusLabel:SetValue(ok and "Status: Config loaded" or "Status: Config unavailable or invalid")
     end
 })
 
@@ -183,7 +186,7 @@ ConfigTab:Button({
         Library:SetFlag("AutoFarm", true)
         Library:SetFlag("WalkSpeed", 120)
         Library:SetFlag("TargetName", "ExampleUser")
-        Library:SetFlag("SelectedMode", "Insane")
+        Library:SetFlag("SelectedMode", "Hard")
         Library:SetFlag("ActionKey", "G")
     end
 })
@@ -199,19 +202,26 @@ MiscTab:Label({
     Text = "Additional API demonstration"
 })
 
-MiscTab:Separator({ Text = "" })
+MiscTab:Separator()
 MiscTab:Label({ Text = "Background" })
 
 local backgroundAssetId = "rbxassetid://13476155084"
+local function syncBackground()
+    local image = Library:GetFlag("BackgroundId") or backgroundAssetId
+    if Library:GetFlag("BackgroundEnabled") then
+        Library:SetBackground(image)
+    else
+        Library:SetBackgroundEnabled(false)
+    end
+    Library:SetBackgroundTransparency((Library:GetFlag("BackgroundTransparency") or 50) / 100)
+end
 
-local BackgroundIdBox = MiscTab:Textbox({
+MiscTab:Textbox({
     Text = "Background ID",
     Placeholder = "rbxassetid://...",
     Flag = "BackgroundId",
     Default = backgroundAssetId,
-    Callback = function(value)
-        backgroundAssetId = value
-    end
+    Callback = syncBackground
 })
 
 MiscTab:Slider({
@@ -230,13 +240,7 @@ MiscTab:Toggle({
     Text = "Background Image",
     Flag = "BackgroundEnabled",
     Default = false,
-    Callback = function(enabled)
-        if enabled then
-            Library:SetBackground(backgroundAssetId)
-        else
-            Library:SetBackgroundEnabled(false)
-        end
-    end
+    Callback = syncBackground
 })
 
 MiscTab:Button({
@@ -259,6 +263,7 @@ MiscTab:Button({
         AutoToggle:SetValue(false)
         SpeedSlider:SetValue(16)
         NameBox:SetValue("")
+        ModeDropdown:SetOptions({ "Easy", "Normal", "Hard", "Insane" }, true)
         ModeDropdown:SetValue("Normal")
         StatusLabel:SetValue("Status: Reset complete")
     end
@@ -271,9 +276,6 @@ MiscTab:Button({
     end
 })
 
-AutoToggle:SetValue(true)
-SpeedSlider:SetValue(50)
-NameBox:SetValue("lain")
-ModeDropdown:SetValue("Hard")
-ActionKeybind:SetValue(Enum.KeyCode.G)
+-- Preserve AutoLoad values. Demonstration setters are available as explicit buttons.
+syncBackground()
 StatusLabel:SetValue("Status: Showcase loaded")
