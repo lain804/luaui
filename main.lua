@@ -159,7 +159,7 @@ local function bindActivation(library, button, callback)
 end
 
 local function createRow(tab, className, name, height, minimumHeight)
-    assert(not tab.Destroyed and not tab.library.Destroyed, "Cannot add controls to a destroyed UI")
+    assert(not tab.Destroyed and not tab.library.Destroyed and not tab.library._destroying, "Cannot add controls to a destroyed UI")
     local row = Instance.new(className)
     row.Name = name
     row.Parent = tab.content
@@ -252,6 +252,10 @@ function Element.new(tab, instance, data)
     end
 
     table.insert(tab.elements, self)
+    instance.Destroying:Connect(function()
+        self._instanceDestroying = true
+        self:Remove()
+    end)
     tab:_RefreshCanvas()
     return self
 end
@@ -259,6 +263,7 @@ end
 function Element:Remove()
     if self.Destroyed then return end
     self.Destroyed = true
+    if self._onHide then pcall(self._onHide) end
     self.Library:_ReleaseElementFocus(self)
 
     if self.Flag and self.Library.elementsByFlag[self.Flag] == self then
@@ -269,7 +274,7 @@ function Element:Remove()
         pcall(self._cleanup)
     end
 
-    if self.Instance then
+    if self.Instance and not self._instanceDestroying then
         self.Instance:Destroy()
     end
 
@@ -290,10 +295,10 @@ end
 function Element:Hide()
     if self.Destroyed or self.Hidden then return end
     self.Hidden = true
-    self.Library:_ReleaseElementFocus(self)
     if self._onHide then
         pcall(self._onHide)
     end
+    self.Library:_ReleaseElementFocus(self)
     self.Parent = self.Instance.Parent
     self.Instance.Parent = nil
     self.Tab:_RefreshCanvas()
@@ -354,7 +359,7 @@ local Tab = {}
 Tab.__index = Tab
 
 function Tab:_NextLayoutOrder()
-    assert(not self.Destroyed and not self.library.Destroyed, "Cannot add controls to a destroyed UI")
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
     self._layoutOrder = (self._layoutOrder or 0) + 1
     return self._layoutOrder
 end
@@ -416,7 +421,7 @@ function Tab:_BindFlag(flag, element)
 end
 
 function Tab:_GetSaved(flag, default)
-    assert(not self.Destroyed and not self.library.Destroyed, "Cannot add controls to a destroyed UI")
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
     assert(not flag or not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
     if flag and self.library.flags[flag] ~= nil then
         return self.library.flags[flag], true
@@ -773,6 +778,7 @@ end
 
 function Tab:Label(args)
     args = args or {}
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
     local text = args.Text or ""
     local height = args.Height or 20
 
@@ -804,6 +810,7 @@ end
 
 function Tab:Separator(args)
     args = args or {}
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
     local container = Instance.new("Frame")
     container.Name = "SeparatorContainer"
     container.Parent = self.content
@@ -1554,10 +1561,13 @@ function UILibrary:_FocusStep(direction)
 end
 
 function UILibrary:_ReleaseElementFocus(element)
+    self._tooltipGeneration = (self._tooltipGeneration or 0) + 1
     local selected = GuiService.SelectedObject
     if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
         GuiService.SelectedObject = nil
     end
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
     if self.Tooltip then self.Tooltip.Visible = false end
     self._tooltipOwner = nil
 end
@@ -1586,9 +1596,11 @@ function UILibrary:_DecorateObject(object)
     end
     object.MouseEnter:Connect(function()
         hide()
+        local generation = self._tooltipGeneration or 0
         pending = task.delay(0.45, function()
             pending = nil
-            if self.Destroyed or not object.Parent or not self.MainFrame.Visible then return end
+            if self.Destroyed or generation ~= (self._tooltipGeneration or 0)
+                or not object.Parent or not self.MainFrame.Visible then return end
             local ancestor = object
             while ancestor and ancestor ~= self.MainFrame do
                 if ancestor:IsA("GuiObject") and ancestor.Visible == false then return end
@@ -2156,6 +2168,7 @@ function UILibrary:_CancelInteractions()
     for _, tab in ipairs(self.tabs or {}) do
         for _, element in ipairs(tab.elements) do
             if element._onHide then element._onHide() end
+            self:_ReleaseElementFocus(element)
         end
     end
 end
@@ -2307,7 +2320,7 @@ end
 
 function UILibrary:CreateTab(args)
     args = args or {}
-    assert(not self.Destroyed, "Cannot create a tab on a destroyed library")
+    assert(not self.Destroyed and not self._destroying, "Cannot create a tab on a destroyed library")
     local name = args.Name or "Tab"
     for _, existing in ipairs(self.tabs) do
         assert(existing.name ~= name, "Duplicate tab: " .. tostring(name))
@@ -2407,11 +2420,13 @@ function UILibrary:CreateTab(args)
 end
 
 function UILibrary:SwitchTab(name)
+    if self.Destroyed or self._destroying then return false end
     local found = false
     for _, tab in ipairs(self.tabs) do
         if tab.name == name then found = true break end
     end
     if not found then return false end
+    if self.currentTab == name then return true end
     self:_CancelInteractions()
     for _, tab in ipairs(self.tabs) do
         if tab.name == name then
@@ -2422,7 +2437,7 @@ function UILibrary:SwitchTab(name)
             self.currentTab = name
 
             task.defer(function()
-                if self.TabContainer and tab.button and tab.button.Parent then
+                if not self.Destroyed and self.currentTab == name and self.TabContainer and tab.button and tab.button.Parent then
                     local left = tab.button.AbsolutePosition.X - self.TabContainer.AbsolutePosition.X
                     local right = left + tab.button.AbsoluteSize.X
                     local viewWidth = self.TabContainer.AbsoluteSize.X
@@ -2442,6 +2457,7 @@ function UILibrary:SwitchTab(name)
             tab.button.TextColor3 = Theme.TextDim
         end
     end
+    return true
 end
 
 function Tab:Textbox(args)
