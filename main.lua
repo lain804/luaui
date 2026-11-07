@@ -2326,7 +2326,7 @@ function UILibrary:SaveConfig()
         self._configDirty = not success or (self._configVersion or 0) ~= version
         -- A write already in flight may outlive Destroy. Flush the final edits
         -- without recreating a timer or touching the destroyed GUI.
-    until not (success and self.Destroyed and self.AutoSave and self._configDirty)
+    until not (success and (self.Destroyed or self._destroying) and self.AutoSave and self._configDirty)
     self._configBusy = nil
     self._flushOnDestroy = nil
     local saveAgain = self._saveAgain
