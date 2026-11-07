@@ -873,7 +873,19 @@ end
 function Tab:Dropdown(args)
     args = args or {}
     local text = args.Text or "Dropdown"
-    local options = shallowCopy(args.Options or {})
+    local function normalizeOptions(values)
+        assert(type(values) == "table", "Dropdown options must be a table")
+        local result, seen = {}, {}
+        for _, option in ipairs(values) do
+            assert(type(option) ~= "number" or finiteNumber(option, nil), "Dropdown options must be finite")
+            if not seen[option] then
+                seen[option] = true
+                table.insert(result, option)
+            end
+        end
+        return result
+    end
+    local options = normalizeOptions(args.Options or {})
     local multiSelect = args.Multi or false
     local callback = args.Callback
     local flag = args.Flag or args.Save
@@ -893,7 +905,7 @@ function Tab:Dropdown(args)
         end
     end
 
-    replaceSelection(self:_GetSaved(flag, args.Default or {}))
+    replaceSelection(self:_GetSaved(flag, args.Default == nil and {} or args.Default))
 
     local frame = createRow(self, "Frame", "Dropdown", args.Height, 30)
     frame.ZIndex = 5
@@ -955,6 +967,7 @@ function Tab:Dropdown(args)
     outsideButton.Size = UDim2.new(1, 0, 1, 0)
     outsideButton.Text = ""
     outsideButton.AutoButtonColor = false
+    outsideButton.Selectable = false
     outsideButton.ZIndex = 40
 
     local dropdown = Instance.new("Frame")
@@ -1084,7 +1097,8 @@ function Tab:Dropdown(args)
         repaintOptions()
         local selection = getSelectedTable()
         -- An empty array preserves an explicitly cleared single selection in JSON.
-        self:_SaveFlag(flag, multiSelect and selection or selection[1] or {})
+        local persisted = multiSelect and selection or selection[1]
+        self:_SaveFlag(flag, persisted == nil and {} or persisted)
         if callback and not noCallback then
             dispatchCallback(self, frame, callback, getValue())
         end
@@ -1254,7 +1268,9 @@ function Tab:Dropdown(args)
     end
     search:GetPropertyChangedSignal("Text"):Connect(filterOptions)
     search.FocusLost:Connect(function(enterPressed)
-        if enterPressed and activeIndex then chooseOption(optionButtons[activeIndex].Option) end
+        if isOpen and enterPressed and activeIndex and optionButtons[activeIndex] then
+            chooseOption(optionButtons[activeIndex].Option)
+        end
     end)
     local function bulkSelect(clear)
         if clear then
@@ -1297,7 +1313,7 @@ function Tab:Dropdown(args)
         assert(type(newOptions) == "table", "Dropdown:SetOptions expects a table")
 
         local previousSelection = getSelectedTable()
-        options = shallowCopy(newOptions)
+        options = normalizeOptions(newOptions)
 
         replaceSelection(previousSelection)
 
@@ -1317,6 +1333,7 @@ function Tab:Dropdown(args)
 
     local function openDropdown()
         if isOpen or #options == 0 then return end
+        if self.library._cancelKeybind then self.library._cancelKeybind() end
         if self.library._closeDropdown then self.library._closeDropdown() end
         self.library._closeDropdown = closeDropdown
         isOpen = true
@@ -1326,8 +1343,9 @@ function Tab:Dropdown(args)
             local key = input.KeyCode
             if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                local inset = GuiService:GetGuiInset()
-                local x, y = input.Position.X - inset.X, input.Position.Y - inset.Y
+                -- InputObject.Position and AbsolutePosition already share the
+                -- CoreUISafeInsets coordinate system.
+                local x, y = input.Position.X, input.Position.Y
                 local function inside(object)
                     local position, size = object.AbsolutePosition, object.AbsoluteSize
                     return x >= position.X and x <= position.X + size.X and y >= position.Y and y <= position.Y + size.Y
@@ -1503,6 +1521,7 @@ function Tab:Keybind(args)
     end)
 
     bindActivation(self.library, button, function()
+        if self.library._closeDropdown then self.library._closeDropdown() end
         if self.library._cancelKeybind then self.library._cancelKeybind() end
         self.library._cancelKeybind = cancelListening
         listening = true
