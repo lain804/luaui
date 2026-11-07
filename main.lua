@@ -158,6 +158,18 @@ local function bindActivation(library, button, callback)
     return button.Activated:Connect(callback)
 end
 
+-- User code runs after the control has finished updating. It may remove controls,
+-- switch tabs, or load another config without mutating an in-progress traversal.
+local function dispatchCallback(tab, instance, callback, ...)
+    if type(callback) ~= "function" then return end
+    local arguments = table.pack(...)
+    task.defer(function()
+        if tab.Destroyed or tab.library.Destroyed or tab.library._destroying
+            or instance:GetAttribute("__uiRemoved") then return end
+        callback(table.unpack(arguments, 1, arguments.n))
+    end)
+end
+
 local function createRow(tab, className, name, height, minimumHeight)
     assert(not tab.Destroyed and not tab.library.Destroyed and not tab.library._destroying, "Cannot add controls to a destroyed UI")
     local row = Instance.new(className)
@@ -263,6 +275,7 @@ end
 function Element:Remove()
     if self.Destroyed then return end
     self.Destroyed = true
+    self.Instance:SetAttribute("__uiRemoved", true)
     if self._onHide then pcall(self._onHide) end
     self.Library:_ReleaseElementFocus(self)
 
@@ -448,7 +461,7 @@ function Tab:Button(args)
 
     local resetFeedback = bindButtonFeedback(button)
     bindActivation(self.library, button, function()
-        if callback then task.spawn(callback) end
+        dispatchCallback(self, button, callback)
     end)
 
     local element = Element.new(self, button, {
@@ -500,7 +513,7 @@ function Tab:Toggle(args)
         toggle.BackgroundColor3 = state and Theme.Accent or Theme.Background
         self:_SaveFlag(flag, state, true)
         if callback and not noCallback then
-            task.spawn(callback, state)
+            dispatchCallback(self, frame, callback, state)
         end
     end
 
@@ -521,7 +534,7 @@ function Tab:Toggle(args)
     self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
-        task.spawn(callback, state)
+        dispatchCallback(self, frame, callback, state)
     end
 
     return element
@@ -641,25 +654,34 @@ function Tab:Slider(args)
         render()
         self:_SaveFlag(flag, value)
         if callback and not noCallback then
-            task.spawn(callback, value)
+            dispatchCallback(self, frame, callback, value)
         end
     end
 
+    local skipFocusLost = 0
     local function commitValue()
-        if not valueLabel:IsFocused() then return end
         local number = finiteNumber(valueLabel.Text, nil)
         if number and snapValue(number) ~= value then setValue(number) else render() end
+    end
+    local function releaseEditing()
+        if not valueLabel:IsFocused() then return end
+        commitValue()
+        skipFocusLost = skipFocusLost + 1
         valueLabel:ReleaseFocus()
+        valueLabel.BackgroundTransparency = 1
     end
     valueLabel.FocusLost:Connect(function()
-        local number = finiteNumber(valueLabel.Text, nil)
-        if number then setValue(number) else render() end
+        if skipFocusLost > 0 then
+            skipFocusLost = skipFocusLost - 1
+        else
+            commitValue()
+        end
+        valueLabel.BackgroundTransparency = 1
     end)
     valueLabel.Focused:Connect(function()
         valueLabel.BackgroundTransparency = 0
         valueLabel.BackgroundColor3 = Theme.ElementHover
     end)
-    valueLabel.FocusLost:Connect(function() valueLabel.BackgroundTransparency = 1 end)
 
     local function updateSlider(inputPos)
         if sliderBg.AbsoluteSize.X <= 0 then return end
@@ -697,10 +719,10 @@ function Tab:Slider(args)
     local element = Element.new(self, frame, {
         Type = "Slider",
         Flag = flag,
-        OnHide = function() stopDragging(); commitValue() end,
+        OnHide = function() stopDragging(); releaseEditing() end,
         Cleanup = function()
             stopDragging()
-            commitValue()
+            releaseEditing()
             disconnectAll(connections)
         end,
         GetValue = function() return value end,
@@ -709,7 +731,7 @@ function Tab:Slider(args)
     self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
-        task.spawn(callback, value)
+        dispatchCallback(self, frame, callback, value)
     end
 
     return element
@@ -1051,7 +1073,7 @@ function Tab:Dropdown(args)
         -- An empty array preserves an explicitly cleared single selection in JSON.
         self:_SaveFlag(flag, multiSelect and selection or selection[1] or {})
         if callback and not noCallback then
-            task.spawn(callback, getValue())
+            dispatchCallback(self, frame, callback, getValue())
         end
     end
 
@@ -1362,7 +1384,7 @@ function Tab:Dropdown(args)
     self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
-        task.spawn(callback, getValue())
+        dispatchCallback(self, frame, callback, getValue())
     end
 
     return element
@@ -1447,7 +1469,7 @@ function Tab:Keybind(args)
         cancelListening()
         saveKey()
         if changed and not noCallback then
-            task.spawn(changed, keyCode)
+            dispatchCallback(self, frame, changed, keyCode)
         end
     end
 
@@ -1475,16 +1497,18 @@ function Tab:Keybind(args)
     end)
 
     inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if self.Destroyed or self.library.Destroyed or not frame.Parent then return end
         if self.library._closeDropdown then return end
         if self.library._capturedInput == input then return end
         if self.library._cancelKeybind and not listening then return end
         if gameProcessed and not listening then return end
-        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        local gamepad = tostring(input.UserInputType):match("^Enum%.UserInputType%.Gamepad") ~= nil
+        if input.UserInputType ~= Enum.UserInputType.Keyboard and not gamepad then return end
         if input.KeyCode == Enum.KeyCode.Unknown then return end
 
         if listening then
             self.library._capturedInput = input
-            if input.KeyCode == Enum.KeyCode.Escape then
+            if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB then
                 cancelListening()
                 return
             end
@@ -1498,7 +1522,7 @@ function Tab:Keybind(args)
 
         if shouldIgnoreForTextBox() then return end
         if keyCode and keyCode ~= Enum.KeyCode.Unknown and input.KeyCode == keyCode and callback then
-            task.spawn(callback, input)
+            dispatchCallback(self, frame, callback, input)
         end
     end)
 
@@ -1523,7 +1547,7 @@ function Tab:Keybind(args)
     self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and changed then
-        task.spawn(changed, keyCode)
+        dispatchCallback(self, frame, changed, keyCode)
     end
 
     return element
@@ -2106,6 +2130,9 @@ function UILibrary.new(args)
             self:_CancelInteractions()
         end
     end)
+    self.ScreenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+        if not self.ScreenGui.Enabled then stopGestures(); self:_CancelInteractions() end
+    end)
     self.ScreenGui.Destroying:Connect(function() self:Destroy() end)
     table.insert(self._connections, self.ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         stopGestures()
@@ -2501,11 +2528,28 @@ function Tab:Textbox(args)
     end
     box.Focused:Connect(renderFocus)
 
-    box.FocusLost:Connect(function(enterPressed)
-        renderFocus()
+    local skipFocusLost = 0
+    local function commitText(enterPressed)
         local newText = box.Text or ""
         self:_SaveFlag(flag, newText)
-        if callback then task.spawn(callback, newText, enterPressed) end
+        dispatchCallback(self, frame, callback, newText, enterPressed)
+    end
+    local function releaseEditing()
+        hovering = false
+        if box:IsFocused() then
+            commitText(false)
+            skipFocusLost = skipFocusLost + 1
+            box:ReleaseFocus()
+        end
+        renderFocus()
+    end
+    box.FocusLost:Connect(function(enterPressed)
+        renderFocus()
+        if skipFocusLost > 0 then
+            skipFocusLost = skipFocusLost - 1
+        else
+            commitText(enterPressed)
+        end
     end)
 
     frame.MouseEnter:Connect(function()
@@ -2521,26 +2565,21 @@ function Tab:Textbox(args)
     local element = Element.new(self, frame, {
         Type = "Textbox",
         Flag = flag,
-        OnHide = function()
-            if box:IsFocused() then
-                -- Commit before teardown, even when FocusLost dispatch is deferred.
-                self:_SaveFlag(flag, box.Text)
-                box:ReleaseFocus()
-            end
-        end,
+        OnHide = releaseEditing,
+        Cleanup = releaseEditing,
         GetValue = function() return box.Text end,
         SetValue = function(val, noCallback)
-            box.Text = tostring(val or "")
+            box.Text = val == nil and "" or tostring(val)
             self:_SaveFlag(flag, box.Text)
             if callback and not noCallback then
-                task.spawn(callback, box.Text, false)
+                dispatchCallback(self, frame, callback, box.Text, false)
             end
         end
     })
     self:_BindFlag(flag, element)
 
     if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
-        task.spawn(callback, box.Text)
+        dispatchCallback(self, frame, callback, box.Text, false)
     end
 
     return element
