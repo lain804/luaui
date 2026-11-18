@@ -1621,6 +1621,11 @@ end
 function UILibrary:_FocusStep(direction)
     local targets = {}
     for _, tab in ipairs(self.tabs) do
+        if tab.button.Selectable and isVisible(self, tab.button) then
+            table.insert(targets, tab.button)
+        end
+    end
+    for _, tab in ipairs(self.tabs) do
         if tab.name == self.currentTab then
             for _, element in ipairs(tab.elements) do
                 if not element.Hidden then
