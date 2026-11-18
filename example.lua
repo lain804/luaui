@@ -1,8 +1,15 @@
--- Run on the client with HttpGet/loadstring enabled. In Studio, put main.lua in
--- a ModuleScript and replace the next line with require(path.to.MainModule).
+-- In Studio, put this LocalScript beside a ModuleScript named "main" containing main.lua.
+-- Standalone executor runs load the matching library revision.
 -- Config persistence requires readfile/writefile; the controls also work without them.
 -- Callbacks run deferred, after each control finishes updating.
-local UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/refs/heads/master/main.lua"))()
+local libraryModule = script and script.Parent and script.Parent:FindFirstChild("main")
+local UI
+if libraryModule or game:GetService("RunService"):IsStudio() then
+    assert(libraryModule and libraryModule:IsA("ModuleScript"), "Place the main ModuleScript beside the showcase")
+    UI = require(libraryModule)
+else
+    UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/46cd658a7a362c124a8c55738708fb643a31a493/main.lua"))()
+end
 
 local Library = UI.new({
     Title = "UI Library Showcase",
