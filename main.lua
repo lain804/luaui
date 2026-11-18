@@ -1937,9 +1937,10 @@ function UILibrary:SetBackground(image, transparency)
     end
 
     -- getcustomasset may yield. A newer image or enable/disable request wins.
+    local transparencyVersion = self._transparencyVersion
     local normalized = normalizeImage(image)
     if self.Destroyed or version ~= self._backgroundVersion then return end
-    if transparency ~= nil then
+    if transparency ~= nil and transparencyVersion == self._transparencyVersion then
         self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
     end
 
@@ -1950,6 +1951,7 @@ end
 
 function UILibrary:SetBackgroundTransparency(transparency)
     if self.Destroyed then return end
+    self._transparencyVersion = (self._transparencyVersion or 0) + 1
     self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
     if self.BackgroundImage then
         self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
