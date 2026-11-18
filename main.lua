@@ -1365,6 +1365,7 @@ function Tab:Dropdown(args)
         isOpen = true
         search.Text = ""
         filterOptions()
+        if not isOpen then return end
         table.insert(placeConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local key = input.KeyCode
             if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
