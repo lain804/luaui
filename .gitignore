@@ -1,2 +1,4 @@
-/tests/
+/tests/*
+!/tests/run.py
+!/tests/config.luau
 /AUDIT.md

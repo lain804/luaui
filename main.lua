@@ -1615,7 +1615,8 @@ end
 function UILibrary:_SetSaveStatus(status)
     self.SaveStatus = status
     if self.SaveIndicator and not self.Destroyed then
-        self.SaveIndicator.Text = status == "Failed" and "Save failed" or status == "Recovered" and "Recovered" or ""
+        self.SaveIndicator.Text = status == "Failed" and "Save failed"
+            or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered" or ""
     end
 end
 
@@ -2264,7 +2265,7 @@ function UILibrary:_StoreFlag(flag, value, immediate)
 end
 
 function UILibrary:_QueueSave(immediate)
-    if not self.AutoSave or self._loading or self.Destroyed or self._destroying then return end
+    if not self.AutoSave or self._autoSaveBlocked or self._loading or self.Destroyed or self._destroying then return end
     if self._configBusy then return end
     if not getEnvFunction("writefile") then return end
     if immediate then
@@ -2291,8 +2292,13 @@ end
 function UILibrary:SetConfigFile(fileName)
     assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
     if self.Destroyed or self._destroying or self._configBusy then return false end
-    if (self._saveTask or self.AutoSave and self._configDirty) and not self:SaveConfig() then return false end
-    if self._configDirty and self.AutoSave then return false end
+    if not self._autoSaveBlocked then
+        if (self._saveTask or self.AutoSave and self._configDirty) and not self:SaveConfig() then return false end
+        if self._configDirty and self.AutoSave then return false end
+    elseif self.ConfigFile ~= fileName then
+        self._autoSaveBlocked = nil
+        self:_SetSaveStatus("Ready")
+    end
     self.ConfigFile = fileName
     self.ConfigPath = self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName
     return true
@@ -2344,6 +2350,7 @@ function UILibrary:SaveConfig()
         warn("UILibrary: " .. tostring(failure))
         return false
     end
+    self._autoSaveBlocked = nil
     self:_SetSaveStatus("Ready")
     if not self.Destroyed and self._configDirty then
         if saveAgain and not self.AutoSave then
@@ -2362,28 +2369,40 @@ function UILibrary:LoadConfig(applyCallbacks)
     if self.Destroyed or self._destroying or self._configBusy then return false end
     local readfile = getEnvFunction("readfile")
     local isfile = getEnvFunction("isfile")
-    if not readfile then
+    if not readfile and not getEnvFunction("writefile") then
         return false
     end
 
     local function readConfig(path)
         if isfile then
             local checked, exists = safeCall(isfile, path)
-            if checked and not exists then return nil end
+            if checked and exists == false then return nil, nil, "missing" end
         end
         local read, data = safeCall(readfile, path)
-        if not read or type(data) ~= "string" or data == "" then return nil end
+        if not read or type(data) ~= "string" then return nil, nil, "unreadable" end
         local decodedOk, decoded = pcall(function() return HttpService:JSONDecode(data) end)
         if decodedOk and type(decoded) == "table" then return decoded, data end
+        return nil, nil, "invalid"
     end
     self._configBusy = "load"
     local version = self._configVersion or 0
-    local decoded, data = readConfig(self.ConfigPath)
+    local decoded, data, primaryError = readConfig(self.ConfigPath)
     local recovered = false
-    if not decoded then decoded, data = readConfig(self.ConfigPath .. ".bak"); recovered = decoded ~= nil end
+    local backupError
+    if not decoded then
+        decoded, data, backupError = readConfig(self.ConfigPath .. ".bak")
+        recovered = decoded ~= nil
+    end
+    -- Only a confirmed missing file is safe to initialize automatically.
+    self._autoSaveBlocked = primaryError == "unreadable"
+        or not decoded and (primaryError ~= "missing" or backupError ~= "missing")
+    if self._autoSaveBlocked then
+        self:_SetSaveStatus("LoadFailed")
+        if self._saveTask then task.cancel(self._saveTask); self._saveTask = nil end
+    end
     if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
         self._configBusy = nil
-        if self.Destroyed and self._flushOnDestroy then
+        if self.Destroyed and self._flushOnDestroy and not self._autoSaveBlocked then
             self:SaveConfig()
         elseif self._configDirty then
             self:_QueueSave()
@@ -2391,7 +2410,7 @@ function UILibrary:LoadConfig(applyCallbacks)
         return false
     end
     self._lastGoodConfig, self._lastGoodPath = data, self.ConfigPath
-    self:_SetSaveStatus(recovered and "Recovered" or "Ready")
+    self:_SetSaveStatus(self._autoSaveBlocked and "LoadFailed" or recovered and "Recovered" or "Ready")
 
     if self._saveTask then
         task.cancel(self._saveTask)
@@ -2433,7 +2452,7 @@ function UILibrary:Destroy()
     if self.Destroyed or self._destroying then return end
     self._destroying = true
     self:_CancelInteractions()
-    if self.AutoSave and (self._saveTask or self._configDirty) then
+    if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
         if self._configBusy == "load" then self._flushOnDestroy = true else self:SaveConfig() end
     end
     self.Destroyed = true
