@@ -1459,18 +1459,15 @@ function Tab:Keybind(args)
 
     local function normalizeKeyCode(value)
         if value == "None" then return Enum.KeyCode.Unknown end
-        if typeof(value) == "EnumItem" and tostring(value):match("^Enum%.KeyCode%.") then
-            return value
-        end
-
         if type(value) == "string" then
             local name = value:match("^Enum%.KeyCode%.(.+)$") or value
             local ok, keyCode = pcall(function()
                 return Enum.KeyCode[name]
             end)
-            if ok and keyCode then
-                return keyCode
-            end
+            value = ok and keyCode or nil
+        end
+        if typeof(value) == "EnumItem" and value.EnumType == Enum.KeyCode then
+            return value
         end
 
         return nil
