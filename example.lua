@@ -62,6 +62,7 @@ local SpeedMeter = MainTab:Meter({
     end
 })
 
+local player = game:GetService("Players").LocalPlayer
 local SpeedSlider = MainTab:Slider({
     Text = "WalkSpeed",
     Flag = "WalkSpeed",
@@ -73,7 +74,7 @@ local SpeedSlider = MainTab:Slider({
         print("WalkSpeed:", value)
         SpeedMeter:SetValue(value)
 
-        local character = game.Players.LocalPlayer.Character
+        local character = player.Character
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.WalkSpeed = value
@@ -81,6 +82,26 @@ local SpeedSlider = MainTab:Slider({
     end
 })
 SpeedMeter:SetValue(SpeedSlider:GetValue())
+
+local humanoidConnection
+local function bindCharacter(character)
+    if Library.Destroyed or character ~= player.Character then return end
+    if humanoidConnection then humanoidConnection:Disconnect() end
+    local function applySpeed(child)
+        if not Library.Destroyed and player.Character == character and child.Parent == character and child:IsA("Humanoid") then
+            child.WalkSpeed = SpeedSlider:GetValue()
+        end
+    end
+    humanoidConnection = character.ChildAdded:Connect(applySpeed)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then applySpeed(humanoid) end
+end
+local characterConnection = player.CharacterAdded:Connect(bindCharacter)
+Library.ScreenGui.Destroying:Connect(function()
+    characterConnection:Disconnect()
+    if humanoidConnection then humanoidConnection:Disconnect() end
+end)
+if player.Character then bindCharacter(player.Character) end
 
 local FractionSlider = MainTab:Slider({
     Text = "Fractional Value",
