@@ -1,6 +1,6 @@
 -- In Studio, put this LocalScript beside a ModuleScript named "main" containing main.lua.
 -- Standalone executor runs load the matching library revision.
--- Config persistence requires readfile/writefile; the controls also work without them.
+-- Config persistence uses readfile/writefile and isfile to check for new files.
 -- Callbacks run deferred, after each control finishes updating.
 local libraryModule = script and script.Parent and script.Parent:FindFirstChild("main")
 local UI

@@ -14,6 +14,7 @@ function http:JSONEncode(flags)
 end
 function http:JSONDecode(bytes) return table.clone(assert(encoded[tonumber(bytes)])) end
 local game = {GetService = function(_, name) return name == "HttpService" and http or {} end}
+local function warn() end
 local task = {
     wait = coroutine.yield,
     delay = function(_, fn) timers[fn] = true; return fn end,
@@ -53,6 +54,39 @@ assert(not lib:LoadConfig())
 lib:SetFlag("Speed", 16)
 runTimers()
 assert(http:JSONDecode(files.fresh).Speed == 16)
+
+local unopened = http:JSONEncode({Audio = true, Volume = 2})
+files.unopened = unopened
+lib = newLibrary("unopened")
+lib:SetFlag("Volume", 8)
+runTimers()
+local updated = http:JSONDecode(files.unopened)
+assert(updated.Audio and updated.Volume == 8)
+assert(files["unopened.bak"] == unopened)
+
+local external = http:JSONEncode({Audio = false, Volume = 8, Theme = "dark"})
+files.unopened = external
+lib:SetFlag("Volume", 10)
+runTimers()
+updated = http:JSONDecode(files.unopened)
+assert(updated.Audio == false and updated.Volume == 10 and updated.Theme == "dark")
+assert(files["unopened.bak"] == external)
+
+local recovered = http:JSONEncode({Audio = true})
+files.unopenedBackup = "invalid"
+files["unopenedBackup.bak"] = recovered
+lib = newLibrary("unopenedBackup")
+lib:SetFlag("Volume", 3)
+runTimers()
+updated = http:JSONDecode(files.unopenedBackup)
+assert(updated.Audio and updated.Volume == 3)
+assert(files["unopenedBackup.bak"] == recovered)
+
+files.unopenedInvalid = "invalid"
+lib = newLibrary("unopenedInvalid")
+lib:SetFlag("Speed", 32)
+runTimers()
+assert(files.unopenedInvalid == "invalid" and lib.SaveStatus == "LoadFailed")
 
 files.invalid = "invalid"
 lib = newLibrary("invalid")

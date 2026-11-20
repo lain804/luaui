@@ -470,9 +470,9 @@ function Tab:_GetSaved(flag, default)
     return default, false
 end
 
-function Tab:_SaveFlag(flag, value, immediate)
+function Tab:_SaveFlag(flag, value)
     if not flag then return end
-    self.library:_StoreFlag(flag, value, immediate)
+    self.library:_StoreFlag(flag, value)
 end
 
 function Tab:Button(args)
@@ -539,7 +539,7 @@ function Tab:Toggle(args)
     local function setState(newState, noCallback)
         state = not not newState
         toggle.BackgroundColor3 = state and Theme.Accent or Theme.Background
-        self:_SaveFlag(flag, state, true)
+        self:_SaveFlag(flag, state)
         if callback and not noCallback then
             dispatchCallback(self, frame, callback, state)
         end
@@ -2256,7 +2256,7 @@ function UILibrary:SetFlag(flag, value, noCallback)
     end
 end
 
-function UILibrary:_StoreFlag(flag, value, immediate)
+function UILibrary:_StoreFlag(flag, value)
     if self.Destroyed then return end
     if not sameFlagValue(self.flags[flag], value) then
         self.flags[flag] = copyFlagValue(value)
@@ -2266,21 +2266,17 @@ function UILibrary:_StoreFlag(flag, value, immediate)
         end
     end
     -- A prior failed write can be retried even when this value is unchanged.
-    if self._configDirty then self:_QueueSave(immediate) end
+    if self._configDirty then self:_QueueSave() end
 end
 
-function UILibrary:_QueueSave(immediate)
+function UILibrary:_QueueSave()
     if not self.AutoSave or self._autoSaveBlocked or self._loading or self.Destroyed or self._destroying then return end
     if self._configBusy then return end
     if not getEnvFunction("writefile") then return end
-    if immediate then
-        self:SaveConfig()
-        return
-    end
     if self._saveTask then return end
     self._saveTask = task.delay(0.25, function()
         self._saveTask = nil
-        if not self.Destroyed then self:SaveConfig() end
+        if not self.Destroyed then self:_SaveConfig(true) end
     end)
 end
 
@@ -2311,6 +2307,19 @@ local function lockConfigFile(file)
     file.busy = true
 end
 
+local function readConfig(path)
+    local isfile = getEnvFunction("isfile")
+    if isfile then
+        local checked, exists = safeCall(isfile, path)
+        if checked and exists == false then return nil, nil, "missing" end
+    end
+    local read, data = safeCall(getEnvFunction("readfile"), path)
+    if not read or type(data) ~= "string" then return nil, nil, "unreadable" end
+    local ok, decoded = pcall(HttpService.JSONDecode, HttpService, data)
+    if ok and type(decoded) == "table" then return decoded, data end
+    return nil, nil, "invalid"
+end
+
 -- A pending save belongs to the old file. Finish it before changing destinations.
 function UILibrary:SetConfigFile(fileName)
     assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
@@ -2318,7 +2327,7 @@ function UILibrary:SetConfigFile(fileName)
     local path = self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName
     local file = configFileState(path)
     if not self._autoSaveBlocked then
-        if (self._saveTask or self.AutoSave and self._configDirty) and not self:SaveConfig() then return false end
+        if (self._saveTask or self.AutoSave and self._configDirty) and not self:_SaveConfig(true) then return false end
         if self._configDirty and self.AutoSave then return false end
     elseif self._configFileState ~= file then
         self._autoSaveBlocked = nil
@@ -2334,6 +2343,10 @@ function UILibrary:SetConfigFile(fileName)
 end
 
 function UILibrary:SaveConfig()
+    return self:_SaveConfig(false)
+end
+
+function UILibrary:_SaveConfig(automatic)
     if self.Destroyed and not self._flushOnDestroy then return false end
     if self._configBusy then
         if self._configBusy == "save" then self._saveAgain = true end
@@ -2356,13 +2369,27 @@ function UILibrary:SaveConfig()
     local file = self._configFileState
     lockConfigFile(file)
     local success, failure
+    local failureStatus = "Failed"
     repeat
         local version = self._configVersion or 0
         success, failure = pcall(function()
+            -- Read under the write lock so unopened files and external edits are preserved.
+            local flags, bytes, primaryError = readConfig(path)
+            local backupError
+            if not flags and primaryError ~= "unreadable" then
+                flags, bytes, backupError = readConfig(path .. ".bak")
+            end
+            local missing = primaryError == "missing" and backupError == "missing"
+            local unreadable = primaryError == "unreadable" or backupError == "unreadable"
+            if unreadable or automatic and not flags and not missing then
+                self._autoSaveBlocked = true
+                failureStatus = "LoadFailed"
+                error("cannot safely save config to " .. path)
+            end
             local snapshot = copyFlagValue(self.flags)
             local merged = snapshot
-            if file.flags then
-                merged = shallowCopy(file.flags)
+            if flags then
+                merged = flags
                 local baseline = self._savedFlags or {}
                 for flag, value in pairs(snapshot) do
                     if not sameFlagValue(value, baseline[flag]) then merged[flag] = value end
@@ -2372,13 +2399,12 @@ function UILibrary:SaveConfig()
                 end
             end
             local encoded = HttpService:JSONEncode(merged)
-            if file.bytes then
-                local backedUp, result = safeCall(writefile, path .. ".bak", file.bytes)
+            if bytes then
+                local backedUp, result = safeCall(writefile, path .. ".bak", bytes)
                 assert(backedUp and result ~= false, "failed to write backup config")
             end
             local wrote, result = safeCall(writefile, path, encoded)
             assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
-            file.bytes, file.flags = encoded, merged
             self._savedFlags = snapshot
         end)
         self._configDirty = not success or (self._configVersion or 0) ~= version
@@ -2391,7 +2417,7 @@ function UILibrary:SaveConfig()
     local saveAgain = self._saveAgain
     self._saveAgain = nil
     if not success then
-        self:_SetSaveStatus("Failed")
+        self:_SetSaveStatus(failureStatus)
         warn("UILibrary: " .. tostring(failure))
         return false
     end
@@ -2412,35 +2438,21 @@ end
 
 function UILibrary:LoadConfig(applyCallbacks)
     if self.Destroyed or self._destroying or self._configBusy then return false end
-    local readfile = getEnvFunction("readfile")
-    local isfile = getEnvFunction("isfile")
-    if not readfile and not getEnvFunction("writefile") then
+    if not getEnvFunction("readfile") and not getEnvFunction("writefile") then
         return false
     end
 
-    local function readConfig(path)
-        if isfile then
-            local checked, exists = safeCall(isfile, path)
-            if checked and exists == false then return nil, nil, "missing" end
-        end
-        local read, data = safeCall(readfile, path)
-        if not read or type(data) ~= "string" then return nil, nil, "unreadable" end
-        local decodedOk, decoded = pcall(function() return HttpService:JSONDecode(data) end)
-        if decodedOk and type(decoded) == "table" then return decoded, data end
-        return nil, nil, "invalid"
-    end
     self._configBusy = "load"
     local version = self._configVersion or 0
     local file = self._configFileState
     lockConfigFile(file)
-    local decoded, data, primaryError = readConfig(self.ConfigPath)
+    local decoded, _, primaryError = readConfig(self.ConfigPath)
     local recovered = false
     local backupError
     if not decoded then
-        decoded, data, backupError = readConfig(self.ConfigPath .. ".bak")
+        decoded, _, backupError = readConfig(self.ConfigPath .. ".bak")
         recovered = decoded ~= nil
     end
-    if decoded then file.bytes, file.flags = data, decoded end
     file.busy = nil
     -- Only a confirmed missing file is safe to initialize automatically.
     self._autoSaveBlocked = primaryError == "unreadable"
@@ -2452,7 +2464,7 @@ function UILibrary:LoadConfig(applyCallbacks)
     if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
         self._configBusy = nil
         if self.Destroyed and self._flushOnDestroy and not self._autoSaveBlocked then
-            self:SaveConfig()
+            self:_SaveConfig(true)
         elseif self._configDirty then
             self:_QueueSave()
         end
@@ -2502,7 +2514,7 @@ function UILibrary:Destroy()
     self._destroying = true
     self:_CancelInteractions()
     if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
-        if self._configBusy == "load" then self._flushOnDestroy = true else self:SaveConfig() end
+        if self._configBusy == "load" then self._flushOnDestroy = true else self:_SaveConfig(true) end
     end
     self.Destroyed = true
     disconnectAll(self._connections)
