@@ -11,17 +11,23 @@ local Theme = {
     Tab = Color3.fromRGB(25, 25, 25),
     TabActive = Color3.fromRGB(35, 35, 35),
     Element = Color3.fromRGB(20, 20, 20),
-    ElementHover = Color3.fromRGB(30, 30, 30),
-    ElementPressed = Color3.fromRGB(38, 38, 38),
+    ElementHover = Color3.fromRGB(32, 32, 32),
+    ElementPressed = Color3.fromRGB(46, 46, 46),
     BorderHover = Color3.fromRGB(76, 76, 76),
-    Text = Color3.fromRGB(200, 200, 200),
+    Text = Color3.fromRGB(216, 216, 216),
     TextDim = Color3.fromRGB(145, 145, 145),
     Accent = Color3.fromRGB(255, 255, 255),
-    Border = Color3.fromRGB(40, 40, 40)
+    Border = Color3.fromRGB(45, 45, 45),
+    Track = Color3.fromRGB(10, 10, 10),
+    Warning = Color3.fromRGB(245, 194, 121)
 }
 
 local DEFAULT_MAX_SIZE = Vector2.new(10000, 10000)
 local ROW_INSET = 12
+local TITLE_HEIGHT = 34
+local TAB_HEIGHT = UserInputService.TouchEnabled and 48 or 38
+local INPUT_ROW_HEIGHT = UserInputService.TouchEnabled and 52 or 30
+local FEEDBACK_TWEEN = TweenInfo.new(0.09)
 
 local function finiteNumber(value, fallback)
     local number = tonumber(value)
@@ -45,50 +51,62 @@ local function disconnectAll(connections)
     table.clear(connections)
 end
 
--- All actionable rows share the same hover, keyboard focus and press treatment.
-local function bindButtonFeedback(button)
-    local hovering, focused, pressed = false, false, false
+local function isPointerPress(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function bindButtonFeedback(button, idleColor)
+    local hovering, focused, active = false, false, false
     local releaseConnection, transition
-    local function render()
-        if transition then transition:Cancel() end
-        transition = TweenService:Create(button, TweenInfo.new(0.09), {
-            BackgroundColor3 = pressed and Theme.ElementPressed
-                or (hovering or focused) and Theme.ElementHover or Theme.Element,
-            BorderColor3 = (pressed or focused) and Theme.Accent
-                or hovering and Theme.BorderHover or Theme.Border
-        })
-        transition:Play()
+    local function render(immediate)
+        local pressed = releaseConnection ~= nil
+        local background = pressed and Theme.ElementPressed
+            or active and Theme.TabActive
+            or (hovering or focused) and Theme.ElementHover or idleColor
+        local border = (pressed or focused or active) and Theme.Accent
+            or hovering and Theme.BorderHover or Theme.Border
+        if transition then transition:Cancel(); transition = nil end
+        if immediate or GuiService.ReducedMotionEnabled then
+            button.BackgroundColor3 = background
+            button.BorderColor3 = border
+        else
+            transition = TweenService:Create(button, FEEDBACK_TWEEN, {
+                BackgroundColor3 = background,
+                BorderColor3 = border
+            })
+            transition:Play()
+        end
     end
-    local function release()
-        pressed = false
+    local function release(immediate)
         if releaseConnection then releaseConnection:Disconnect(); releaseConnection = nil end
-        render()
+        render(immediate)
     end
     local function reset()
         hovering, focused = false, false
-        release()
+        release(true)
     end
     button.MouseEnter:Connect(function() hovering = true; render() end)
     button.MouseLeave:Connect(function() hovering = false; release() end)
     button.SelectionGained:Connect(function() focused = true; render() end)
     button.SelectionLost:Connect(function() focused = false; release() end)
     button.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.Touch
-            and input.KeyCode ~= Enum.KeyCode.ButtonA then return end
-        release()
-        pressed = true
-        render()
+        if releaseConnection or not isPointerPress(input) and input.KeyCode ~= Enum.KeyCode.ButtonA then return end
         releaseConnection = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End
                 or input.UserInputState == Enum.UserInputState.Cancel then release() end
         end)
+        render()
     end)
     button.Destroying:Connect(function()
         if releaseConnection then releaseConnection:Disconnect() end
         if transition then transition:Cancel() end
     end)
-    return reset
+    return reset, function(enabled)
+        if active == enabled then return end
+        active = enabled
+        render()
+    end
 end
 
 local function getEnvFunction(name)
@@ -101,14 +119,6 @@ local function safeCall(fn, ...)
     if typeof(fn) ~= "function" then return false, nil end
     local ok, result = pcall(fn, ...)
     return ok, result
-end
-
-local function shallowCopy(t)
-    local out = {}
-    for k, v in pairs(t or {}) do
-        out[k] = v
-    end
-    return out
 end
 
 local function copyFlagValue(value, seen)
@@ -185,6 +195,20 @@ local function bindActivation(library, button, callback)
     return button.Activated:Connect(activate)
 end
 
+local function focusDirection()
+    return (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
+        and -1 or 1
+end
+
+local function stepFocus(targets, direction, focused)
+    if #targets == 0 then return end
+    local index = table.find(targets, focused or GuiService.SelectedObject) or (direction > 0 and 0 or 1)
+    local target = targets[(index - 1 + direction) % #targets + 1]
+    if focused and focused ~= target then focused:ReleaseFocus() end
+    GuiService.SelectedObject = target
+    if target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
+end
+
 -- User code runs after the control has finished updating. It may remove controls,
 -- switch tabs, or load another config without mutating an in-progress traversal.
 local function dispatchCallback(tab, instance, callback, ...)
@@ -239,10 +263,10 @@ end
 local function createTrack(parent, color)
     local track = Instance.new("Frame")
     track.Parent = parent
-    track.BackgroundColor3 = Theme.Background
+    track.BackgroundColor3 = Theme.Track
     track.BorderSizePixel = 0
-    track.Position = UDim2.new(0, 10, 1, -16)
-    track.Size = UDim2.new(1, -20, 0, 4)
+    track.Position = UDim2.new(0, 10, 1, -17)
+    track.Size = UDim2.new(1, -20, 0, 6)
 
     local fill = Instance.new("Frame")
     fill.Parent = track
@@ -487,7 +511,7 @@ function Tab:Button(args)
     button.TextSize = args.TextSize or 13
     button.AutoButtonColor = false
 
-    local resetFeedback = bindButtonFeedback(button)
+    local resetFeedback = bindButtonFeedback(button, Theme.Element)
     bindActivation(self.library, button, function()
         dispatchCallback(self, button, callback)
     end)
@@ -495,7 +519,6 @@ function Tab:Button(args)
     local element = Element.new(self, button, {
         Type = "Button",
         OnHide = resetFeedback,
-        Cleanup = resetFeedback,
         GetValue = function()
             return button.Text
         end,
@@ -523,29 +546,41 @@ function Tab:Toggle(args)
 
     local label = createLabel(frame, text, args.TextSize)
     label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(1, -42, 1, 0)
+    label.Size = UDim2.new(1, -56, 1, 0)
 
     local toggle = Instance.new("Frame")
     toggle.Parent = frame
-    toggle.BackgroundColor3 = default and Theme.Accent or Theme.Background
+    toggle.BackgroundColor3 = Theme.Track
     toggle.BorderColor3 = Theme.Border
     toggle.BorderSizePixel = 1
     toggle.Position = UDim2.new(1, -10, 0.5, 0)
-    toggle.Size = UDim2.new(0, 14, 0, 14)
+    toggle.Size = UDim2.new(0, 28, 0, 14)
     toggle.AnchorPoint = Vector2.new(1, 0.5)
 
+    local thumb = Instance.new("Frame")
+    thumb.Name = "Thumb"
+    thumb.Parent = toggle
+    thumb.BorderSizePixel = 0
+    thumb.Size = UDim2.fromOffset(8, 8)
+
     local state = default
+    local function render()
+        thumb.Position = UDim2.fromOffset(state and 17 or 3, 3)
+        thumb.BackgroundColor3 = state and Theme.Accent or Theme.TextDim
+        toggle.BorderColor3 = state and Theme.TextDim or Theme.BorderHover
+    end
+    render()
 
     local function setState(newState, noCallback)
         state = not not newState
-        toggle.BackgroundColor3 = state and Theme.Accent or Theme.Background
+        render()
         self:_SaveFlag(flag, state)
         if callback and not noCallback then
             dispatchCallback(self, frame, callback, state)
         end
     end
 
-    local resetFeedback = bindButtonFeedback(frame)
+    local resetFeedback = bindButtonFeedback(frame, Theme.Element)
 
     bindActivation(self.library, frame, function()
         setState(not state)
@@ -555,7 +590,6 @@ function Tab:Toggle(args)
         Type = "Toggle",
         Flag = flag,
         OnHide = resetFeedback,
-        Cleanup = resetFeedback,
         GetValue = function() return state end,
         SetValue = setState
     })
@@ -644,13 +678,13 @@ function Tab:Slider(args)
     sliderHandle.Parent = sliderBg
     sliderHandle.BackgroundColor3 = Theme.Text
     sliderHandle.BorderSizePixel = 0
-    sliderHandle.Size = UDim2.new(0, 4, 0, 14)
+    sliderHandle.Size = UDim2.fromOffset(6, 14)
 
     local detector = Instance.new("TextButton")
     detector.Parent = sliderBg
     detector.BackgroundTransparency = 1
-    detector.Position = UDim2.new(0, -6, 0, -10)
-    detector.Size = UDim2.new(1, 12, 0, 24)
+    detector.Position = UDim2.fromOffset(-6, -6)
+    detector.Size = UDim2.new(1, 12, 0, 23)
     detector.Text = ""
     detector.AutoButtonColor = false
     detector:SetAttribute("__uiSkipFocus", true)
@@ -658,23 +692,27 @@ function Tab:Slider(args)
 
     local value = default
     local dragging = false
+    local hovering = false
     local pointer = nil
     local connections = {}
+    local function renderGesture()
+        frame.BackgroundColor3 = (dragging or hovering) and Theme.ElementHover or Theme.Element
+        sliderHandle.BackgroundColor3 = (dragging or hovering) and Theme.Accent or Theme.Text
+        frame.BorderColor3 = dragging and Theme.BorderHover or Theme.Border
+    end
     local function stopDragging()
         dragging = false
         pointer = nil
-        sliderHandle.BackgroundColor3 = Theme.Text
+        renderGesture()
     end
-
-    local function getAlpha(v)
-        return math.clamp((v - min) / (max - min), 0, 1)
-    end
+    detector.MouseEnter:Connect(function() hovering = true; renderGesture() end)
+    detector.MouseLeave:Connect(function() hovering = false; renderGesture() end)
 
     local function render()
-        local alpha = getAlpha(value)
+        local alpha = (value - min) / (max - min)
         valueLabel.Text = tostring(value)
         sliderFill.Size = UDim2.new(alpha, 0, 1, 0)
-        sliderHandle.Position = UDim2.new(alpha, -4 * alpha, 0, -5)
+        sliderHandle.Position = UDim2.new(alpha, -6 * alpha, 0, -4)
     end
 
     local function setValue(newValue, noCallback)
@@ -723,11 +761,10 @@ function Tab:Slider(args)
 
     detector.InputBegan:Connect(function(input)
         if dragging or not isVisible(self.library, detector) then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if not isPointerPress(input) then return end
         dragging = true
         pointer = input
-        sliderHandle.BackgroundColor3 = Theme.Accent
+        renderGesture()
         updateSlider(input.Position)
     end)
 
@@ -751,10 +788,12 @@ function Tab:Slider(args)
     local element = Element.new(self, frame, {
         Type = "Slider",
         Flag = flag,
-        OnHide = function() stopDragging(); releaseEditing() end,
-        Cleanup = function()
+        OnHide = function()
+            hovering = false
             stopDragging()
             releaseEditing()
+        end,
+        Cleanup = function()
             disconnectAll(connections)
         end,
         GetValue = function() return value end,
@@ -799,12 +838,8 @@ function Tab:Meter(args)
 
     local value = math.clamp(finiteNumber(default, min), min, max)
 
-    local function getAlpha(v)
-        return math.clamp((v - min) / (max - min), 0, 1)
-    end
-
     local function render()
-        local alpha = getAlpha(value)
+        local alpha = (value - min) / (max - min)
         if format then
             valueLabel.Text = tostring(format(value, alpha))
         else
@@ -902,9 +937,9 @@ function Tab:Dropdown(args)
                 table.insert(result, option)
             end
         end
-        return result
+        return result, seen
     end
-    local options = normalizeOptions(args.Options or {})
+    local options, optionSet = normalizeOptions(args.Options or {})
     local multiSelect = args.Multi or false
     local callback = args.Callback
     local flag = args.Flag or args.Save
@@ -916,7 +951,7 @@ function Tab:Dropdown(args)
         table.clear(selected)
         table.clear(selectionOrder)
         for _, option in ipairs(values) do
-            if table.find(options, option) and not selected[option] then
+            if optionSet[option] and not selected[option] then
                 selected[option] = true
                 table.insert(selectionOrder, option)
                 if not multiSelect then break end
@@ -926,7 +961,7 @@ function Tab:Dropdown(args)
 
     replaceSelection(self:_GetSaved(flag, args.Default == nil and {} or args.Default))
 
-    local frame = createRow(self, "Frame", "Dropdown", args.Height, 30)
+    local frame = createRow(self, "Frame", "Dropdown", args.Height, INPUT_ROW_HEIGHT)
     frame.ZIndex = 5
 
     local label = createLabel(frame, text, args.TextSize)
@@ -935,13 +970,10 @@ function Tab:Dropdown(args)
     label.ZIndex = 6
 
     local button = createInputSurface(frame, "TextButton")
-    button.Font = Enum.Font.Code
     button.Text = ""
-    button.TextColor3 = Theme.Text
-    button.TextSize = args.TextSize or 13
-    button.TextXAlignment = Enum.TextXAlignment.Left
     button.AutoButtonColor = false
     button.ZIndex = 6
+    local resetFeedback, setActiveFeedback = bindButtonFeedback(button, Theme.Background)
 
     local selectedLabel = createLabel(button, "", args.TextSize)
     selectedLabel.Position = UDim2.new(0, 6, 0, 0)
@@ -960,12 +992,11 @@ function Tab:Dropdown(args)
     arrow.TextSize = 10
     arrow.ZIndex = 7
 
-    local optionHeight = UserInputService.TouchEnabled and 40 or 28
-    local headerHeight = 32
-    local footerHeight = multiSelect and 30 or 0
-    local maxHeight = 150
-    local totalHeight = #options * optionHeight
-    local dropdownHeight = math.min(totalHeight, maxHeight) + headerHeight + footerHeight
+    local touch = UserInputService.TouchEnabled
+    local optionHeight = touch and 44 or 28
+    local headerHeight = touch and 52 or 34
+    local footerHeight = multiSelect and (touch and 52 or 32) or 0
+    local dropdownHeight
 
     local overlay = Instance.new("Frame")
     overlay.Name = "DropdownOverlay"
@@ -993,13 +1024,19 @@ function Tab:Dropdown(args)
     dropdown.Name = "DropdownList"
     dropdown.Parent = overlay
     dropdown.BackgroundColor3 = Theme.Element
-    dropdown.BorderColor3 = Theme.Border
+    dropdown.BorderColor3 = Theme.BorderHover
     dropdown.BorderSizePixel = 1
     dropdown.AnchorPoint = Vector2.new(0, 0)
     dropdown.Position = UDim2.new(0, 0, 0, 0)
-    dropdown.Size = UDim2.new(0, 0, 0, dropdownHeight)
+    dropdown.Size = UDim2.fromOffset(0, 0)
     dropdown.Visible = false
+    dropdown.Active = true
     dropdown.ClipsDescendants = true
+    dropdown.SelectionGroup = true
+    dropdown.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
+    dropdown.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
+    dropdown.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
+    dropdown.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
     dropdown.ZIndex = 50
 
     local scrollFrame = Instance.new("ScrollingFrame")
@@ -1011,8 +1048,7 @@ function Tab:Dropdown(args)
     scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
     scrollFrame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
     scrollFrame.ScrollBarThickness = 4
-    scrollFrame.ScrollBarImageColor3 = Theme.Border
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+    scrollFrame.ScrollBarImageColor3 = Theme.BorderHover
     scrollFrame.ClipsDescendants = true
     scrollFrame.ZIndex = 51
 
@@ -1023,9 +1059,9 @@ function Tab:Dropdown(args)
     local search = Instance.new("TextBox")
     search.Name = "Search"
     search.Parent = dropdown
-    search.Size = UDim2.new(1, -12, 0, headerHeight - 6)
-    search.Position = UDim2.new(0, 6, 0, 3)
-    search.BackgroundColor3 = Theme.Background
+    search.Size = UDim2.new(1, -12, 0, headerHeight - 8)
+    search.Position = UDim2.fromOffset(6, 4)
+    search.BackgroundColor3 = Theme.Track
     search.BorderSizePixel = 0
     search.Font = Enum.Font.Code
     search.Text = ""
@@ -1034,8 +1070,16 @@ function Tab:Dropdown(args)
     search.PlaceholderText = "Search options..."
     search.PlaceholderColor3 = Theme.TextDim
     search.ClearTextOnFocus = false
+    search.TextXAlignment = Enum.TextXAlignment.Left
     search.ZIndex = 52
+    local searchPadding = Instance.new("UIPadding")
+    searchPadding.PaddingLeft = UDim.new(0, 8)
+    searchPadding.PaddingRight = UDim.new(0, 8)
+    searchPadding.Parent = search
+    self.library:_DecorateObject(search)
+
     local bulkButtons = {}
+    local resetBulkFeedback = {}
     if multiSelect then
         for index, caption in ipairs({"All", "Clear"}) do
             local bulk = Instance.new("TextButton")
@@ -1045,11 +1089,13 @@ function Tab:Dropdown(args)
             bulk.TextSize = 12
             bulk.TextColor3 = Theme.Text
             bulk.BackgroundColor3 = Theme.Tab
-            bulk.BorderSizePixel = 0
-            bulk.Position = UDim2.new((index - 1) * 0.5, 0, 1, -footerHeight)
-            bulk.Size = UDim2.new(0.5, 0, 0, footerHeight)
+            bulk.BorderColor3 = Theme.Border
+            bulk.AutoButtonColor = false
+            bulk.Position = UDim2.new((index - 1) * 0.5, index == 1 and 6 or 2, 1, 3 - footerHeight)
+            bulk.Size = UDim2.new(0.5, -8, 0, footerHeight - 8)
             bulk.ZIndex = 52
-            bindButtonFeedback(bulk)
+            self.library:_DecorateObject(bulk)
+            resetBulkFeedback[index] = bindButtonFeedback(bulk, Theme.Tab)
             bulkButtons[index] = bulk
         end
     end
@@ -1063,9 +1109,10 @@ function Tab:Dropdown(args)
     local visibleIndices = {}
     local optionButtons = {}
     local activeIndex = nil
+    local hoveredIndex = nil
 
     local function getSelectedTable()
-        return shallowCopy(selectionOrder)
+        return table.clone(selectionOrder)
     end
 
     local function getValue()
@@ -1076,7 +1123,7 @@ function Tab:Dropdown(args)
     local function getSelectedText()
         local list = selectionOrder
         if #list == 0 then
-            return "None"
+            return #options == 0 and "No options" or "None"
         elseif #list == 1 then
             return tostring(list[1])
         else
@@ -1090,17 +1137,17 @@ function Tab:Dropdown(args)
 
             item.Marker.Visible = isSelected
             item.Button.TextColor3 = isSelected and Theme.Accent or Theme.Text
-            item.Button.BackgroundColor3 = index == activeIndex and Theme.ElementPressed
+            item.Button.BackgroundColor3 = index == (hoveredIndex or activeIndex) and Theme.ElementPressed
                 or isSelected and Theme.ElementHover or Theme.Background
         end
     end
 
     local function focusOption(index)
-        if #optionButtons == 0 then return end
-        if #visibleIndices == 0 then activeIndex = nil; repaintOptions(); return end
         activeIndex = table.find(visibleIndices, index) and index or visibleIndices[1]
+        hoveredIndex = nil
         repaintOptions()
-        GuiService.SelectedObject = optionButtons[activeIndex].Button
+        if not activeIndex then return end
+        if not search:IsFocused() then GuiService.SelectedObject = optionButtons[activeIndex].Button end
         local top = (table.find(visibleIndices, activeIndex) - 1) * optionHeight
         local height = math.max(0, dropdown.Size.Y.Offset - headerHeight - footerHeight)
         local canvasY = scrollFrame.CanvasPosition.Y
@@ -1111,9 +1158,14 @@ function Tab:Dropdown(args)
         end
     end
 
-    local function updateDisplay(noCallback)
+    local function renderSelection()
         selectedLabel.Text = getSelectedText()
+        selectedLabel.TextColor3 = #selectionOrder > 0 and Theme.Text or Theme.TextDim
         repaintOptions()
+    end
+
+    local function updateDisplay(noCallback)
+        renderSelection()
         local selection = getSelectedTable()
         -- An empty array preserves an explicitly cleared single selection in JSON.
         local persisted = multiSelect and selection or selection[1]
@@ -1130,12 +1182,6 @@ function Tab:Dropdown(args)
 
     local isOpen = false
     local placeConnections = {}
-    button.MouseEnter:Connect(function()
-        if not isOpen then button.BorderColor3 = Theme.BorderHover end
-    end)
-    button.MouseLeave:Connect(function()
-        if not isOpen then button.BorderColor3 = Theme.Border end
-    end)
 
     local closeDropdown
     local function placeDropdown()
@@ -1190,16 +1236,17 @@ function Tab:Dropdown(args)
     closeDropdown = function()
         if not isOpen then return end
         isOpen = false
-        activeIndex = nil
+        activeIndex, hoveredIndex = nil, nil
         if search:IsFocused() then search:ReleaseFocus() end
         if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(overlay) then
-            GuiService.SelectedObject = self.library.MainFrame.Visible and frame.Parent and self.content.Visible and button or nil
+            GuiService.SelectedObject = isVisible(self.library, button) and button or nil
         end
         dropdown.Visible = false
         overlay.Visible = false
         arrow.Text = "v"
         arrow.TextColor3 = Theme.TextDim
-        button.BorderColor3 = Theme.Border
+        setActiveFeedback(false)
+        for _, reset in ipairs(resetBulkFeedback) do reset() end
         disconnectAll(placeConnections)
         if self.library._closeDropdown == closeDropdown then
             self.library._closeDropdown = nil
@@ -1266,11 +1313,11 @@ function Tab:Dropdown(args)
             if activeIndex ~= index then focusOption(index) end
         end)
         optionButton.MouseEnter:Connect(function()
-            activeIndex = index
+            hoveredIndex = index
             repaintOptions()
         end)
         optionButton.MouseLeave:Connect(function()
-            if activeIndex == index then activeIndex = nil end
+            if hoveredIndex == index then hoveredIndex = nil end
             repaintOptions()
         end)
         bindActivation(self.library, optionButton, function() chooseOption(option) end)
@@ -1284,15 +1331,25 @@ function Tab:Dropdown(args)
             if item.Button.Visible then table.insert(visibleIndices, index) end
         end
         emptyMessage.Visible = #visibleIndices == 0
-        totalHeight = #visibleIndices * optionHeight
-        dropdownHeight = math.min(totalHeight > 0 and totalHeight or optionHeight, maxHeight) + headerHeight + footerHeight
+        emptyMessage.Text = #options == 0 and "No options available" or "No results"
+        local totalHeight = #visibleIndices * optionHeight
+        dropdownHeight = math.min(math.max(totalHeight, optionHeight), 150) + headerHeight + footerHeight
         scrollFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
         scrollFrame.CanvasPosition = Vector2.new(0, 0)
-        activeIndex = visibleIndices[1]
+        if not table.find(visibleIndices, activeIndex) then activeIndex = visibleIndices[1] end
+        hoveredIndex = nil
+        if isOpen then
+            placeDropdown()
+            if dropdown.Visible then
+                focusOption(activeIndex)
+                return
+            end
+        end
         repaintOptions()
-        if isOpen then placeDropdown() end
     end
-    search:GetPropertyChangedSignal("Text"):Connect(filterOptions)
+    search:GetPropertyChangedSignal("Text"):Connect(function()
+        if isOpen then filterOptions() end
+    end)
     search.FocusLost:Connect(function(enterPressed)
         if isOpen and enterPressed and activeIndex and optionButtons[activeIndex] then
             chooseOption(optionButtons[activeIndex].Option)
@@ -1317,29 +1374,18 @@ function Tab:Dropdown(args)
             item.Button:Destroy()
         end
         table.clear(optionButtons)
+        activeIndex, hoveredIndex = nil, nil
 
         for index, option in ipairs(options) do
             createOptionButton(option, index)
         end
 
         filterOptions()
-
-        if isOpen then
-            if #options == 0 then
-                closeDropdown()
-            else
-                placeDropdown()
-            end
-        else
-            dropdown.Size = UDim2.new(0, dropdown.Size.X.Offset, 0, dropdownHeight)
-        end
     end
 
     local function setOptions(newOptions, noCallback)
-        assert(type(newOptions) == "table", "Dropdown:SetOptions expects a table")
-
         local previousSelection = getSelectedTable()
-        options = normalizeOptions(newOptions)
+        options, optionSet = normalizeOptions(newOptions)
 
         replaceSelection(previousSelection)
 
@@ -1358,7 +1404,7 @@ function Tab:Dropdown(args)
     outsideButton.Activated:Connect(closeDropdown)
 
     local function openDropdown()
-        if isOpen or #options == 0 then return end
+        if isOpen then return end
         if self.library._cancelKeybind then self.library._cancelKeybind() end
         if self.library._closeDropdown then self.library._closeDropdown() end
         self.library._closeDropdown = closeDropdown
@@ -1369,19 +1415,26 @@ function Tab:Dropdown(args)
         table.insert(placeConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local key = input.KeyCode
             if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                -- InputObject.Position and AbsolutePosition already share the
-                -- CoreUISafeInsets coordinate system.
+            if isPointerPress(input) then
+                -- The overlay handles clicks inside the window.
                 local x, y = input.Position.X, input.Position.Y
-                local function inside(object)
-                    local position, size = object.AbsolutePosition, object.AbsoluteSize
-                    return x >= position.X and x <= position.X + size.X and y >= position.Y and y <= position.Y + size.Y
+                local main = self.library.MainFrame
+                local position, size = main.AbsolutePosition, main.AbsoluteSize
+                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
+                    closeDropdown()
                 end
-                if not inside(dropdown) and not inside(button) then closeDropdown() end
                 return
             end
             local focused = UserInputService:GetFocusedTextBox()
-            if focused and focused ~= search or gameProcessed and focused ~= search then return end
+            if focused and focused ~= search then return end
+            if key == Enum.KeyCode.Tab then
+                local targets = {search}
+                if activeIndex then table.insert(targets, optionButtons[activeIndex].Button) end
+                for _, bulk in ipairs(bulkButtons) do table.insert(targets, bulk) end
+                stepFocus(targets, focusDirection(), focused)
+                return
+            end
+            if gameProcessed and focused ~= search then return end
             if multiSelect and not focused and key == Enum.KeyCode.A
                 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
                 bulkSelect(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
@@ -1395,8 +1448,15 @@ function Tab:Dropdown(args)
                 focusOption(visibleIndices[1])
             elseif key == Enum.KeyCode.End then
                 focusOption(visibleIndices[#visibleIndices])
-            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter) and activeIndex and not focused then
-                chooseOption(optionButtons[activeIndex].Option)
+            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.Space) and not focused then
+                local selectedObject = GuiService.SelectedObject
+                if selectedObject == search then
+                    search:CaptureFocus()
+                elseif table.find(bulkButtons, selectedObject) then
+                    bulkSelect(selectedObject == bulkButtons[2])
+                elseif activeIndex then
+                    chooseOption(optionButtons[activeIndex].Option)
+                end
             end
         end))
         placeDropdown()
@@ -1404,9 +1464,10 @@ function Tab:Dropdown(args)
         overlay.Visible = true
         dropdown.Visible = true
         focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1])
+        if not activeIndex then GuiService.SelectedObject = search end
         arrow.Text = "^"
         arrow.TextColor3 = Theme.Accent
-        button.BorderColor3 = Theme.Accent
+        setActiveFeedback(true)
         -- keep the list pinned to the button as it moves (scrolling the content,
         -- dragging the window, resizing) instead of leaving it where it opened.
         table.insert(placeConnections, button:GetPropertyChangedSignal("AbsolutePosition"):Connect(placeDropdown))
@@ -1422,8 +1483,7 @@ function Tab:Dropdown(args)
         end
     end)
 
-    selectedLabel.Text = getSelectedText()
-    repaintOptions()
+    renderSelection()
 
     local element = Element.new(self, frame, {
         Type = "Dropdown",
@@ -1431,14 +1491,16 @@ function Tab:Dropdown(args)
         GetValue = getValue,
         SetValue = setSelected,
         GetOptions = function()
-            return shallowCopy(options)
+            return table.clone(options)
         end,
         SetOptions = setOptions,
         Cleanup = function()
-            closeDropdown()
             overlay:Destroy()
         end,
-        OnHide = closeDropdown
+        OnHide = function()
+            closeDropdown()
+            resetFeedback()
+        end
     })
     self:_BindFlag(flag, element)
 
@@ -1479,7 +1541,7 @@ function Tab:Keybind(args)
         default = normalizeKeyCode(saved) or default
     end
 
-    local frame = createRow(self, "Frame", "Keybind", args.Height, 30)
+    local frame = createRow(self, "Frame", "Keybind", args.Height, INPUT_ROW_HEIGHT)
 
     local label = createLabel(frame, text, args.TextSize)
     label.Position = UDim2.new(0, 10, 0, 0)
@@ -1492,10 +1554,10 @@ function Tab:Keybind(args)
     button.TextSize = args.TextSize or 13
     button.TextXAlignment = Enum.TextXAlignment.Center
     button.AutoButtonColor = false
+    local resetFeedback, setActiveFeedback = bindButtonFeedback(button, Theme.Background)
 
     local keyCode = default
     local listening = false
-    local inputConnection = nil
 
     local function keyName(value)
         return value and value ~= Enum.KeyCode.Unknown and value.Name or "None"
@@ -1503,9 +1565,8 @@ function Tab:Keybind(args)
 
     local function render()
         button.Text = listening and "Press a key..." or keyName(keyCode)
-        button.TextColor3 = listening and Theme.Accent or Theme.Text
-        frame.BackgroundColor3 = listening and Theme.ElementHover or Theme.Element
-        button.BorderColor3 = listening and Theme.Accent or Theme.Border
+        button.TextColor3 = listening and Theme.Accent or keyCode == Enum.KeyCode.Unknown and Theme.TextDim or Theme.Text
+        setActiveFeedback(listening)
     end
 
     local function saveKey()
@@ -1533,19 +1594,8 @@ function Tab:Keybind(args)
         return ignoreTextBox and UserInputService:GetFocusedTextBox() ~= nil
     end
 
-    button.MouseEnter:Connect(function()
-        if not listening then
-            frame.BackgroundColor3 = Theme.ElementHover
-        end
-    end)
-
-    button.MouseLeave:Connect(function()
-        if not listening then
-            frame.BackgroundColor3 = Theme.Element
-        end
-    end)
-
     bindActivation(self.library, button, function()
+        if listening then cancelListening(); return end
         if self.library._closeDropdown then self.library._closeDropdown() end
         if self.library._cancelKeybind then self.library._cancelKeybind() end
         self.library._cancelKeybind = cancelListening
@@ -1553,7 +1603,7 @@ function Tab:Keybind(args)
         render()
     end)
 
-    inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    local inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if self.Destroyed or self.library.Destroyed or not self.library.ScreenGui.Enabled or not frame.Parent then return end
         if self.library._closeDropdown then return end
         if self.library._capturedInput == input then return end
@@ -1592,13 +1642,12 @@ function Tab:Keybind(args)
             return keyCode
         end,
         SetValue = setKey,
-        OnHide = cancelListening,
-        Cleanup = function()
+        OnHide = function()
             cancelListening()
-            if inputConnection then
-                inputConnection:Disconnect()
-                inputConnection = nil
-            end
+            resetFeedback()
+        end,
+        Cleanup = function()
+            inputConnection:Disconnect()
         end
     })
     self:_BindFlag(flag, element)
@@ -1615,10 +1664,12 @@ function UILibrary:_SetSaveStatus(status)
     if self.SaveIndicator and not self.Destroyed then
         self.SaveIndicator.Text = status == "Failed" and "Save failed"
             or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered" or ""
+        self.SaveIndicator.Visible = self.SaveIndicator.Text ~= ""
+        self.TitleBar.Title.Size = UDim2.new(1, self.SaveIndicator.Visible and -106 or -20, 1, 0)
     end
 end
 
-function UILibrary:_FocusStep(direction)
+function UILibrary:_FocusStep(direction, focused)
     local targets = {}
     for _, tab in ipairs(self.tabs) do
         if tab.button.Selectable and isVisible(self, tab.button) then
@@ -1641,27 +1692,28 @@ function UILibrary:_FocusStep(direction)
             end
         end
     end
-    if #targets == 0 then return end
-    local index = table.find(targets, GuiService.SelectedObject) or (direction > 0 and 0 or 1)
-    local target = targets[(index - 1 + direction) % #targets + 1]
-    GuiService.SelectedObject = target
-    if target:IsA("TextBox") then target:CaptureFocus() end
+    stepFocus(targets, direction, focused)
+end
+
+function UILibrary:_HideTooltip()
+    self._tooltipGeneration = (self._tooltipGeneration or 0) + 1
+    if self.Tooltip then self.Tooltip.Visible = false end
+    self._tooltipOwner = nil
 end
 
 function UILibrary:_ReleaseElementFocus(element)
-    self._tooltipGeneration = (self._tooltipGeneration or 0) + 1
     local selected = GuiService.SelectedObject
     if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
         GuiService.SelectedObject = nil
     end
     local focused = UserInputService:GetFocusedTextBox()
     if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
-    if self.Tooltip then self.Tooltip.Visible = false end
-    self._tooltipOwner = nil
+    self:_HideTooltip()
 end
 
 function UILibrary:_DecorateObject(object)
-    if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or object:IsA("TextBox")) then
+    local isTextBox = object:IsA("TextBox")
+    if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or isTextBox) then
         object.Selectable = true
         local outline = Instance.new("UIStroke")
         outline.Name = "FocusOutline"
@@ -1670,8 +1722,15 @@ function UILibrary:_DecorateObject(object)
         outline.Thickness = 1
         outline.Enabled = false
         outline.Parent = object
-        object.SelectionGained:Connect(function() outline.Enabled = true end)
-        object.SelectionLost:Connect(function() outline.Enabled = false end)
+        local function renderFocus()
+            outline.Enabled = GuiService.SelectedObject == object or isTextBox and object:IsFocused()
+        end
+        object.SelectionGained:Connect(renderFocus)
+        object.SelectionLost:Connect(renderFocus)
+        if isTextBox then
+            object.Focused:Connect(renderFocus)
+            object.FocusLost:Connect(renderFocus)
+        end
     end
     if not (object:IsA("TextLabel") or object:IsA("TextButton")) then return end
     local pending
@@ -1687,14 +1746,8 @@ function UILibrary:_DecorateObject(object)
         local generation = self._tooltipGeneration or 0
         pending = task.delay(0.45, function()
             pending = nil
-            if self.Destroyed or generation ~= (self._tooltipGeneration or 0)
-                or not object.Parent or not self.MainFrame.Visible then return end
-            local ancestor = object
-            while ancestor and ancestor ~= self.MainFrame do
-                if ancestor:IsA("GuiObject") and ancestor.Visible == false then return end
-                ancestor = ancestor.Parent
-            end
-            if object:IsDescendantOf(self.MainFrame) and not object.TextFits then
+            if generation ~= (self._tooltipGeneration or 0) or not isVisible(self, object) then return end
+            if not object.TextFits then
                 if not self.Tooltip then
                     self.Tooltip = createLabel(self.MainFrame, "", 12)
                     self.Tooltip.BackgroundTransparency = 0
@@ -1703,6 +1756,10 @@ function UILibrary:_DecorateObject(object)
                     self.Tooltip.BorderSizePixel = 1
                     self.Tooltip.TextWrapped = true
                     self.Tooltip.ZIndex = 80
+                    local padding = Instance.new("UIPadding")
+                    padding.PaddingLeft = UDim.new(0, 8)
+                    padding.PaddingRight = UDim.new(0, 8)
+                    padding.Parent = self.Tooltip
                 end
                 local width = math.max(1, self.MainFrame.AbsoluteSize.X - 24)
                 self.Tooltip.Text = object.Text
@@ -1757,8 +1814,7 @@ function UILibrary:_FitViewport()
     local y = finiteNumber(position.Y.Scale * viewport.Y + position.Y.Offset, margin)
     self.MainFrame.Position = UDim2.new(0, math.clamp(x, margin, math.max(margin, viewport.X - size.X - margin)),
         0, math.clamp(y, margin, math.max(margin, viewport.Y - size.Y - margin)))
-    if self.Tooltip then self.Tooltip.Visible = false end
-    self._tooltipOwner = nil
+    self:_HideTooltip()
 end
 
 function UILibrary:SetSize(width, height)
@@ -2046,25 +2102,20 @@ function UILibrary.new(args)
     self.TitleBar.BackgroundColor3 = Theme.Tab
     self.TitleBar.BorderColor3 = Theme.Border
     self.TitleBar.BorderSizePixel = 1
-    self.TitleBar.Size = UDim2.new(1, 0, 0, 30)
+    self.TitleBar.Size = UDim2.new(1, 0, 0, TITLE_HEIGHT)
     self.TitleBar.ZIndex = 3
 
-    local titleLabel = Instance.new("TextLabel")
+    local titleLabel = createLabel(self.TitleBar, args.Title or "GUI", 15)
     titleLabel.Name = "Title"
-    titleLabel.Parent = self.TitleBar
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Position = UDim2.new(0, 10, 0, 0)
-    titleLabel.Size = UDim2.new(1, -106, 1, 0)
-    titleLabel.Font = Enum.Font.Code
-    titleLabel.Text = args.Title or "GUI"
-    titleLabel.TextColor3 = Theme.Text
-    titleLabel.TextSize = 14
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Position = UDim2.fromOffset(ROW_INSET, 0)
+    titleLabel.TextColor3 = Theme.Accent
     titleLabel.TextTruncate = Enum.TextTruncate.AtEnd
     titleLabel.ZIndex = 3
+    self:_DecorateObject(titleLabel)
     self.SaveIndicator = createLabel(self.TitleBar, "", 11)
     self.SaveIndicator.Position = UDim2.new(1, -96, 0, 0)
     self.SaveIndicator.Size = UDim2.new(0, 86, 1, 0)
+    self.SaveIndicator.TextColor3 = Theme.Warning
     self.SaveIndicator.TextXAlignment = Enum.TextXAlignment.Right
     self:_SetSaveStatus(self.SaveStatus or "Ready")
 
@@ -2075,13 +2126,13 @@ function UILibrary.new(args)
     self.TabContainer.BackgroundColor3 = Theme.Tab
     self.TabContainer.BorderColor3 = Theme.Border
     self.TabContainer.BorderSizePixel = 1
-    self.TabContainer.Position = UDim2.new(0, 0, 0, 30)
-    self.TabContainer.Size = UDim2.new(1, 0, 0, 35)
+    self.TabContainer.Position = UDim2.fromOffset(0, TITLE_HEIGHT)
+    self.TabContainer.Size = UDim2.new(1, 0, 0, TAB_HEIGHT)
     self.TabContainer.ClipsDescendants = true
     self.TabContainer.Active = true
     self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
     self.TabContainer.ScrollBarThickness = self.TabScrollBarThickness
-    self.TabContainer.ScrollBarImageColor3 = Theme.Border
+    self.TabContainer.ScrollBarImageColor3 = Theme.BorderHover
     self.TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
     self.TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.None
     self.TabContainer.ZIndex = 3
@@ -2107,15 +2158,15 @@ function UILibrary.new(args)
     self.ContentArea.Parent = self.MainFrame
     self.ContentArea.BackgroundColor3 = Theme.Background
     self.ContentArea.BorderSizePixel = 0
-    self.ContentArea.Position = UDim2.new(0, 0, 0, 65)
-    self.ContentArea.Size = UDim2.new(1, 0, 1, -65)
+    self.ContentArea.Position = UDim2.fromOffset(0, TITLE_HEIGHT + TAB_HEIGHT)
+    self.ContentArea.Size = UDim2.new(1, 0, 1, -TITLE_HEIGHT - TAB_HEIGHT)
     self.ContentArea.ClipsDescendants = true
     self.ContentArea.ZIndex = 2
 
     self.ResizeHandle = Instance.new("TextButton")
     self.ResizeHandle.Name = "ResizeHandle"
     self.ResizeHandle.Parent = self.MainFrame
-    self.ResizeHandle.BackgroundColor3 = Theme.Border
+    self.ResizeHandle.BackgroundColor3 = Theme.Element
     self.ResizeHandle.BackgroundTransparency = 0.25
     self.ResizeHandle.BorderSizePixel = 0
     self.ResizeHandle.AnchorPoint = Vector2.new(1, 1)
@@ -2126,16 +2177,22 @@ function UILibrary.new(args)
     self.ResizeHandle.Selectable = false
     self.ResizeHandle.Visible = self.ResizeEnabled
     self.ResizeHandle.ZIndex = 10
+    local resetResizeFeedback = bindButtonFeedback(self.ResizeHandle, Theme.Element)
+    self.ResizeHandle:GetPropertyChangedSignal("Visible"):Connect(function()
+        if not self.ResizeHandle.Visible then resetResizeFeedback() end
+    end)
 
-    local handleCorner = Instance.new("Frame")
-    handleCorner.Name = "CornerMark"
-    handleCorner.Parent = self.ResizeHandle
-    handleCorner.BackgroundColor3 = Theme.Accent
-    handleCorner.BorderSizePixel = 0
-    handleCorner.AnchorPoint = Vector2.new(1, 1)
-    handleCorner.Position = UDim2.new(1, -3, 1, -3)
-    handleCorner.Size = UDim2.new(0, 6, 0, 6)
-    handleCorner.ZIndex = 11
+    for _, size in ipairs({UDim2.fromOffset(8, 1), UDim2.fromOffset(1, 8)}) do
+        local cornerLine = Instance.new("Frame")
+        cornerLine.Name = "CornerMark"
+        cornerLine.BackgroundColor3 = Theme.Text
+        cornerLine.BorderSizePixel = 0
+        cornerLine.AnchorPoint = Vector2.new(1, 1)
+        cornerLine.Position = UDim2.new(1, -3, 1, -3)
+        cornerLine.Size = size
+        cornerLine.ZIndex = 11
+        cornerLine.Parent = self.ResizeHandle
+    end
 
     self.tabs = {}
     self.currentTab = nil
@@ -2145,20 +2202,27 @@ function UILibrary.new(args)
     local function stopGestures()
         dragging, resizing = false, false
         pointer = nil
+        self.TitleBar.BorderColor3 = Theme.Border
     end
     self._stopGestures = stopGestures
-    local function isPointer(input)
-        return input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch
+    local function cancelWindowInteractions()
+        stopGestures()
+        self:_CancelInteractions()
+        self._capturedInput = nil
+        local selected = GuiService.SelectedObject
+        if selected and selected:IsDescendantOf(self.MainFrame) then GuiService.SelectedObject = nil end
+        for _, tab in ipairs(self.tabs) do tab._resetFeedback() end
+        resetResizeFeedback()
     end
     self.TitleBar.Active = true
     self.TitleBar.InputBegan:Connect(function(input)
-        if dragging or resizing or not isPointer(input) or not isVisible(self, self.TitleBar) then return end
+        if dragging or resizing or not isPointerPress(input) or not isVisible(self, self.TitleBar) then return end
         dragging = true
         pointer, dragStart, startPos = input, input.Position, self.MainFrame.Position
+        self.TitleBar.BorderColor3 = Theme.BorderHover
     end)
     self.ResizeHandle.InputBegan:Connect(function(input)
-        if dragging or resizing or not self.ResizeEnabled or not isPointer(input)
+        if dragging or resizing or not self.ResizeEnabled or not isPointerPress(input)
             or not isVisible(self, self.ResizeHandle) then return end
         resizing = true
         pointer, resizeStart, startSize = input, input.Position, self.MainFrame.AbsoluteSize
@@ -2185,10 +2249,7 @@ function UILibrary.new(args)
         if self._capturedInput == input then self._capturedInput = nil end
         if input == pointer then stopGestures() end
     end))
-    table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(function()
-        stopGestures()
-        self:_CancelInteractions()
-    end))
+    table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if self.Destroyed or not self.ScreenGui.Enabled then return end
         if self._closeDropdown or self._cancelKeybind then return end
@@ -2196,15 +2257,14 @@ function UILibrary.new(args)
         if focused and not focused:IsDescendantOf(self.MainFrame) then return end
         if input.KeyCode == Enum.KeyCode.Tab and self.MainFrame.Visible then
             self._capturedInput = input
-            if focused then focused:ReleaseFocus() end
-            local reverse = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-            self:_FocusStep(reverse and -1 or 1)
+            self:_FocusStep(focusDirection(), focused)
             return
         end
         if gameProcessed or focused then return end
         local selected = GuiService.SelectedObject
         if self.MainFrame.Visible and selected and selected:IsDescendantOf(self.MainFrame)
-            and (input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space) then
+            and (input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter
+                or input.KeyCode == Enum.KeyCode.Space) then
             local activate = self._activationHandlers and self._activationHandlers[selected]
             if activate then self._capturedInput = input; activate(); return end
         end
@@ -2213,13 +2273,10 @@ function UILibrary.new(args)
         end
     end))
     self.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-        if not self.MainFrame.Visible then
-            stopGestures()
-            self:_CancelInteractions()
-        end
+        if not self.MainFrame.Visible then cancelWindowInteractions() end
     end)
     self.ScreenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
-        if not self.ScreenGui.Enabled then stopGestures(); self:_CancelInteractions() end
+        if not self.ScreenGui.Enabled then cancelWindowInteractions() end
     end)
     self.ScreenGui.Destroying:Connect(function()
         self._screenDestroying = true
@@ -2282,11 +2339,15 @@ end
 
 function UILibrary:_CancelInteractions()
     for _, tab in ipairs(self.tabs or {}) do
-        for _, element in ipairs(tab.elements) do
-            if element._onHide then element._onHide() end
-            self:_ReleaseElementFocus(element)
+        if tab.name == self.currentTab then
+            for _, element in ipairs(tab.elements) do
+                if element._onHide then element._onHide() end
+                self:_ReleaseElementFocus(element)
+            end
+            break
         end
     end
+    self:_HideTooltip()
 end
 
 -- Separately loaded copies of the library can write the same executor file.
@@ -2544,6 +2605,23 @@ function Tab:RemoveTab()
     end
 end
 
+function Tab:_RevealButton()
+    task.defer(function()
+        local button = self.button
+        if self.Destroyed or not isVisible(self.library, button) then return end
+        local rail = self.library.TabContainer
+        local left = button.AbsolutePosition.X - rail.AbsolutePosition.X
+        local width = button.AbsoluteSize.X
+        local viewWidth = rail.AbsoluteWindowSize.X
+        local offset = rail.CanvasPosition.X
+        if left < 0 or width >= viewWidth then
+            rail.CanvasPosition = Vector2.new(math.max(offset + left, 0), 0)
+        elseif left + width > viewWidth then
+            rail.CanvasPosition = Vector2.new(offset + left + width - viewWidth, 0)
+        end
+    end)
+end
+
 function UILibrary:CreateTab(args)
     args = args or {}
     assert(not self.Destroyed and not self._destroying, "Cannot create a tab on a destroyed library")
@@ -2574,6 +2652,8 @@ function UILibrary:CreateTab(args)
     tab.button.AutoButtonColor = false
     tab.button.TextTruncate = Enum.TextTruncate.AtEnd
     self:_DecorateObject(tab.button)
+    tab._resetFeedback, tab._setActiveFeedback = bindButtonFeedback(tab.button, Theme.Tab)
+    tab.button.SelectionGained:Connect(function() tab:_RevealButton() end)
     self._tabOrder = (self._tabOrder or 0) + 1
     tab.button.LayoutOrder = self._tabOrder
     tab.button.ZIndex = 3
@@ -2582,8 +2662,8 @@ function UILibrary:CreateTab(args)
     tab.indicator.Parent = tab.button
     tab.indicator.BackgroundColor3 = Theme.Accent
     tab.indicator.BorderSizePixel = 0
-    tab.indicator.Position = UDim2.new(0, 12, 1, -1)
-    tab.indicator.Size = UDim2.new(1, -24, 0, 1)
+    tab.indicator.Position = UDim2.new(0, ROW_INSET, 1, -2)
+    tab.indicator.Size = UDim2.new(1, -2 * ROW_INSET, 0, 2)
     tab.indicator.Visible = false
 
     tab.content = Instance.new("ScrollingFrame")
@@ -2631,19 +2711,6 @@ function UILibrary:CreateTab(args)
         self:SwitchTab(name)
     end)
 
-    tab.button.MouseEnter:Connect(function()
-        if self.currentTab ~= name then
-            tab.button.BackgroundColor3 = Theme.ElementHover
-        end
-    end)
-
-    tab.button.MouseLeave:Connect(function()
-        if self.currentTab ~= name then
-            tab.button.BackgroundColor3 = Theme.Tab
-        end
-    end)
-
-
     table.insert(self.tabs, tab)
     if self.BackgroundEnabled then self:_applyChromeTransparency(true, tab.button) end
 
@@ -2656,42 +2723,22 @@ end
 
 function UILibrary:SwitchTab(name)
     if self.Destroyed or self._destroying then return false end
-    local found = false
+    local nextTab
     for _, tab in ipairs(self.tabs) do
-        if tab.name == name then found = true break end
+        if tab.name == name then nextTab = tab; break end
     end
-    if not found then return false end
+    if not nextTab then return false end
     if self.currentTab == name then return true end
     self:_CancelInteractions()
+    self.currentTab = name
     for _, tab in ipairs(self.tabs) do
-        if tab.name == name then
-            tab.indicator.Visible = true
-            tab.content.Visible = true
-            tab.button.BackgroundColor3 = Theme.TabActive
-            tab.button.TextColor3 = Theme.Text
-            self.currentTab = name
-
-            task.defer(function()
-                if not self.Destroyed and self.currentTab == name and self.TabContainer and tab.button and tab.button.Parent then
-                    local left = tab.button.AbsolutePosition.X - self.TabContainer.AbsolutePosition.X
-                    local right = left + tab.button.AbsoluteSize.X
-                    local viewWidth = self.TabContainer.AbsoluteSize.X
-                    local canvasX = self.TabContainer.CanvasPosition.X
-
-                    if left < 0 then
-                        self.TabContainer.CanvasPosition = Vector2.new(math.max(canvasX + left, 0), 0)
-                    elseif right > viewWidth then
-                        self.TabContainer.CanvasPosition = Vector2.new(canvasX + (right - viewWidth), 0)
-                    end
-                end
-            end)
-        else
-            tab.indicator.Visible = false
-            tab.content.Visible = false
-            tab.button.BackgroundColor3 = Theme.Tab
-            tab.button.TextColor3 = Theme.TextDim
-        end
+        local active = tab == nextTab
+        tab.indicator.Visible = active
+        tab.content.Visible = active
+        tab.button.TextColor3 = active and Theme.Accent or Theme.TextDim
+        tab._setActiveFeedback(active)
     end
+    nextTab:_RevealButton()
     return true
 end
 
@@ -2705,7 +2752,7 @@ function Tab:Textbox(args)
     default = self:_GetSaved(flag, default)
     default = tostring(default)
 
-    local frame = createRow(self, "Frame", "Textbox", args.Height, 30)
+    local frame = createRow(self, "Frame", "Textbox", args.Height, INPUT_ROW_HEIGHT)
 
     local label = createLabel(frame, labelText, args.TextSize)
     label.Position = UDim2.new(0, 10, 0, 0)
@@ -2732,7 +2779,7 @@ function Tab:Textbox(args)
     local hovering = false
     local function renderFocus()
         frame.BackgroundColor3 = (hovering or box:IsFocused()) and Theme.ElementHover or Theme.Element
-        boxFrame.BorderColor3 = box:IsFocused() and Theme.Accent or Theme.Border
+        boxFrame.BorderColor3 = box:IsFocused() and Theme.Accent or hovering and Theme.BorderHover or Theme.Border
     end
     box.Focused:Connect(renderFocus)
 
@@ -2776,7 +2823,6 @@ function Tab:Textbox(args)
         Type = "Textbox",
         Flag = flag,
         OnHide = releaseEditing,
-        Cleanup = releaseEditing,
         GetValue = function() return box.Text end,
         SetValue = function(val, noCallback)
             box.Text = val == nil and "" or tostring(val)

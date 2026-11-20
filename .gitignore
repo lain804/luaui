@@ -1,4 +1,5 @@
 /tests/*
 !/tests/run.py
 !/tests/config.luau
+!/tests/focus.luau
 /AUDIT.md

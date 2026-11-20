@@ -36,7 +36,7 @@ local StatusLabel = MainTab:Label({
 })
 
 MainTab:Label({
-    Text = "RightShift: hide/show. Drag the title or resize from the bottom-right."
+    Text = "RightShift to hide/show. Drag the title or bottom-right corner."
 })
 
 MainTab:Button({
@@ -158,8 +158,8 @@ local FeatureDropdown = MainTab:Dropdown({
     end
 })
 
-MainTab:Label({ Text = "Dropdowns: search, arrows, Enter/Escape; multi-select adds All/Clear." })
-MainTab:Label({ Text = "Keys: click to rebind, Escape cancels, Backspace clears; gamepad keys also work." })
+MainTab:Label({ Text = "Dropdowns: search, use arrows, Enter to select, Esc to close." })
+MainTab:Label({ Text = "Keybinds: click to rebind, Esc to cancel, Backspace to clear." })
 
 local ActionKeybind = MainTab:Keybind({
     Text = "Action Key",
@@ -246,8 +246,8 @@ MainTab:Button({
     end
 })
 
-ConfigTab:Label({
-    Text = "Config controls"
+local ConfigStatus = ConfigTab:Label({
+    Text = "Status: Ready"
 })
 
 ConfigTab:Button({
@@ -255,7 +255,7 @@ ConfigTab:Button({
     Callback = function()
         local ok = Library:SaveConfig()
         print("SaveConfig:", ok)
-        StatusLabel:SetValue(ok and "Status: Config saved" or "Status: Save failed (file API unavailable?)")
+        ConfigStatus:SetValue(ok and "Status: Config saved" or "Status: Could not save config")
     end
 })
 
@@ -264,7 +264,7 @@ ConfigTab:Button({
     Callback = function()
         local ok = Library:LoadConfig(true)
         print("LoadConfig:", ok)
-        StatusLabel:SetValue(ok and "Status: Config loaded" or "Status: Config unavailable or invalid")
+        ConfigStatus:SetValue(ok and "Status: Config loaded" or "Status: Config unavailable or invalid")
     end
 })
 
@@ -273,7 +273,7 @@ ConfigTab:Button({
     Callback = function()
         local ok = Library:LoadConfig(false)
         SpeedMeter:SetValue(SpeedSlider:GetValue())
-        StatusLabel:SetValue(ok and "Status: Values loaded silently" or "Status: Config unavailable")
+        ConfigStatus:SetValue(ok and "Status: Values loaded silently" or "Status: Config unavailable")
     end
 })
 
@@ -288,11 +288,11 @@ ConfigTab:Button({
     Callback = function()
         local filename = ConfigFileBox:GetValue()
         if not filename:match("%S") then
-            StatusLabel:SetValue("Status: Enter a config filename")
+            ConfigStatus:SetValue("Status: Enter a config filename")
             return
         end
         local ok = Library:SetConfigFile(filename)
-        StatusLabel:SetValue(ok and "Status: Config destination changed" or "Status: Config change failed or busy")
+        ConfigStatus:SetValue(ok and "Status: Config file set to " .. Library.ConfigFile or "Status: Could not change config file")
     end
 })
 
@@ -314,8 +314,8 @@ ConfigTab:Button({
     end
 })
 
-MiscTab:Label({
-    Text = "Additional API demonstration"
+local MiscStatus = MiscTab:Label({
+    Text = "Status: Ready"
 })
 
 MiscTab:Separator()
@@ -394,7 +394,7 @@ MiscTab:Button({
     Callback = function()
         Library:SetResizeBounds(Vector2.new(420, 300), Vector2.new(600, 420))
         local size = Library:GetSize()
-        StatusLabel:SetValue(string.format("Status: Window is %d x %d", size.X, size.Y))
+        MiscStatus:SetValue(string.format("Status: Window is %d x %d", size.X, size.Y))
     end
 })
 
@@ -496,9 +496,7 @@ MiscTab:Button({
         FeatureDropdown:SetValue({ "Hints", "Animations" })
         ModeDropdown:SetOptions({ "Easy", "Normal", "Hard", "Insane" }, true)
         ModeDropdown:SetValue("Normal")
-        task.defer(function()
-            StatusLabel:SetValue("Status: Reset complete")
-        end)
+        MiscStatus:SetValue("Status: Reset complete")
     end
 })
 

@@ -1,5 +1,6 @@
 local Color3 = {fromRGB = function() return {} end}
 local Vector2 = {new = function(x, y) return {X = x, Y = y} end}
+local TweenInfo = {new = function() return {} end}
 local files, encoded, timers = {}, {}, {}
 local env = {
     isfile = function(path) return files[path] ~= nil end,
