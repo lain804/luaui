@@ -68,7 +68,11 @@ function Instance.new(className)
         return signals[name]
     end
     function object:IsFocused() return input.focused == self end
-    function object:ReleaseFocus() input.focused = nil end
+    function object:ReleaseFocus(submitted)
+        input.focused = nil
+        gui.SelectedObject = nil
+        self.FocusLost:Fire(submitted == true)
+    end
     for _, name in ipairs({"Activated", "MouseEnter", "MouseLeave", "InputBegan", "SelectionGained",
         "SelectionLost", "Focused", "FocusLost", "Destroying"}) do
         object[name] = signal()
@@ -168,10 +172,21 @@ assert(popup.Position.Y.Offset == popupY and popup.Size.Y.Offset == popupHeight)
 input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0, "Ctrl+A selected options while editing a search")
 
+input.InputBegan:Fire({KeyCode = "Escape"}, true)
+assert(popup.Visible and not search:IsFocused() and gui.SelectedObject == alpha)
+assert(search.Text == "aLPHa" and #element:GetValue() == 0)
+input.InputBegan:Fire({KeyCode = "A"})
+assert(#element:GetValue() == 3, "Ctrl+A should work after Escape leaves Search")
+element:SetValue({}, true)
+
+input.focused = search
+search.Focused:Fire()
 search.Text = "no match"
 search:GetPropertyChangedSignal("Text"):Fire()
 assert(not alpha.Visible and not alphabet.Visible and not beta.Visible)
 assert(popup.Position.Y.Offset == popupY and popup.Size.Y.Offset == popupHeight)
+input.InputBegan:Fire({KeyCode = "Escape"}, true)
+assert(popup.Visible and not search:IsFocused() and gui.SelectedObject == search)
 search.Text = ""
 search:GetPropertyChangedSignal("Text"):Fire()
 assert(alpha.Visible and alphabet.Visible and beta.Visible)

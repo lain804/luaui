@@ -158,7 +158,7 @@ local FeatureDropdown = MainTab:Dropdown({
     end
 })
 
-MainTab:Label({ Text = "Dropdowns: search, use arrows, Enter to select, Esc to close." })
+MainTab:Label({ Text = "Dropdowns: Enter selects. Esc leaves Search, then closes." })
 MainTab:Label({ Text = "Keybinds: click to rebind, Esc to cancel, Backspace to clear." })
 
 local ActionKeybind = MainTab:Keybind({

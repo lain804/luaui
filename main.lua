@@ -1431,6 +1431,11 @@ function Tab:Dropdown(args)
             local selectedObject = GuiService.SelectedObject
             if focused ~= search and (focused or not selectedObject
                 or not selectedObject:IsDescendantOf(dropdown) or not isVisible(self.library, selectedObject)) then return end
+            if key == Enum.KeyCode.Escape and focused == search then
+                search:ReleaseFocus()
+                focusOption(activeIndex)
+                return
+            end
             if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
             if key == Enum.KeyCode.Tab then
                 local targets = {search}
