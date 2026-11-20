@@ -1062,7 +1062,8 @@ function Tab:Dropdown(args)
     search.Size = UDim2.new(1, -12, 0, headerHeight - 8)
     search.Position = UDim2.fromOffset(6, 4)
     search.BackgroundColor3 = Theme.Track
-    search.BorderSizePixel = 0
+    search.BorderColor3 = Theme.Border
+    search.BorderSizePixel = 1
     search.Font = Enum.Font.Code
     search.Text = ""
     search.TextSize = 12
@@ -1077,6 +1078,9 @@ function Tab:Dropdown(args)
     searchPadding.PaddingRight = UDim.new(0, 8)
     searchPadding.Parent = search
     self.library:_DecorateObject(search)
+    search.Focused:Connect(function()
+        if isVisible(self.library, search) then GuiService.SelectedObject = search end
+    end)
 
     local bulkButtons = {}
     local resetBulkFeedback = {}
@@ -1142,12 +1146,14 @@ function Tab:Dropdown(args)
         end
     end
 
-    local function focusOption(index)
+    local function focusOption(index, keepSelection)
         activeIndex = table.find(visibleIndices, index) and index or visibleIndices[1]
         hoveredIndex = nil
         repaintOptions()
+        if not keepSelection and not search:IsFocused() then
+            GuiService.SelectedObject = activeIndex and optionButtons[activeIndex].Button or search
+        end
         if not activeIndex then return end
-        if not search:IsFocused() then GuiService.SelectedObject = optionButtons[activeIndex].Button end
         local top = (table.find(visibleIndices, activeIndex) - 1) * optionHeight
         local height = math.max(0, dropdown.Size.Y.Offset - headerHeight - footerHeight)
         local canvasY = scrollFrame.CanvasPosition.Y
@@ -1333,19 +1339,9 @@ function Tab:Dropdown(args)
         emptyMessage.Visible = #visibleIndices == 0
         emptyMessage.Text = #options == 0 and "No options available" or "No results"
         local totalHeight = #visibleIndices * optionHeight
-        dropdownHeight = math.min(math.max(totalHeight, optionHeight), 150) + headerHeight + footerHeight
         scrollFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
         scrollFrame.CanvasPosition = Vector2.new(0, 0)
-        if not table.find(visibleIndices, activeIndex) then activeIndex = visibleIndices[1] end
-        hoveredIndex = nil
-        if isOpen then
-            placeDropdown()
-            if dropdown.Visible then
-                focusOption(activeIndex)
-                return
-            end
-        end
-        repaintOptions()
+        focusOption(activeIndex, true)
     end
     search:GetPropertyChangedSignal("Text"):Connect(function()
         if isOpen then filterOptions() end
@@ -1353,6 +1349,7 @@ function Tab:Dropdown(args)
     search.FocusLost:Connect(function(enterPressed)
         if isOpen and enterPressed and activeIndex and optionButtons[activeIndex] then
             chooseOption(optionButtons[activeIndex].Option)
+            if isOpen then focusOption(activeIndex) end
         end
     end)
     local function bulkSelect(clear)
@@ -1370,6 +1367,8 @@ function Tab:Dropdown(args)
     end
 
     local function rebuildOptionButtons()
+        local selectedObject = GuiService.SelectedObject
+        local hadOptionFocus = selectedObject and selectedObject:IsDescendantOf(scrollFrame)
         for _, item in ipairs(optionButtons) do
             item.Button:Destroy()
         end
@@ -1380,7 +1379,11 @@ function Tab:Dropdown(args)
             createOptionButton(option, index)
         end
 
+        -- Keep the search field stationary while the option list is filtered.
+        dropdownHeight = math.min(math.max(#options, 1) * optionHeight, 150) + headerHeight + footerHeight
+        if isOpen then placeDropdown() end
         filterOptions()
+        if isOpen and hadOptionFocus then focusOption(activeIndex) end
     end
 
     local function setOptions(newOptions, noCallback)
@@ -1411,10 +1414,9 @@ function Tab:Dropdown(args)
         isOpen = true
         search.Text = ""
         filterOptions()
-        if not isOpen then return end
         table.insert(placeConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if not isOpen or not isVisible(self.library, dropdown) then return end
             local key = input.KeyCode
-            if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
             if isPointerPress(input) then
                 -- The overlay handles clicks inside the window.
                 local x, y = input.Position.X, input.Position.Y
@@ -1426,7 +1428,10 @@ function Tab:Dropdown(args)
                 return
             end
             local focused = UserInputService:GetFocusedTextBox()
-            if focused and focused ~= search then return end
+            local selectedObject = GuiService.SelectedObject
+            if focused ~= search and (focused or not selectedObject
+                or not selectedObject:IsDescendantOf(dropdown) or not isVisible(self.library, selectedObject)) then return end
+            if key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB then closeDropdown(); return end
             if key == Enum.KeyCode.Tab then
                 local targets = {search}
                 if activeIndex then table.insert(targets, optionButtons[activeIndex].Button) end
@@ -1449,7 +1454,6 @@ function Tab:Dropdown(args)
             elseif key == Enum.KeyCode.End then
                 focusOption(visibleIndices[#visibleIndices])
             elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.Space) and not focused then
-                local selectedObject = GuiService.SelectedObject
                 if selectedObject == search then
                     search:CaptureFocus()
                 elseif table.find(bulkButtons, selectedObject) then
@@ -1464,7 +1468,6 @@ function Tab:Dropdown(args)
         overlay.Visible = true
         dropdown.Visible = true
         focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1])
-        if not activeIndex then GuiService.SelectedObject = search end
         arrow.Text = "^"
         arrow.TextColor3 = Theme.Accent
         setActiveFeedback(true)
