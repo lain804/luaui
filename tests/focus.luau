@@ -212,4 +212,13 @@ input.InputBegan:Fire({KeyCode = "Escape"})
 input.InputBegan:Fire({KeyCode = "A"})
 assert(not popup.Visible and #element:GetValue() == 0)
 
+local scalar = tab:Dropdown({Options = {false, 0, "zero", false}, Default = false})
+assert(scalar:GetValue() == false and #scalar:GetOptions() == 3)
+scalar:SetValue(0)
+assert(scalar:GetValue() == 0)
+assert(not pcall(scalar.SetOptions, scalar, {"new", {}}))
+assert(scalar:GetValue() == 0 and table.concat({scalar:GetOptions()[2], scalar:GetOptions()[3]}, ",") == "0,zero")
+assert(not pcall(tab.Dropdown, tab, {Options = {math.huge}}))
+assert(not pcall(tab.Dropdown, tab, {Options = false}))
+
 print("Focus traversal and dropdown checks passed")

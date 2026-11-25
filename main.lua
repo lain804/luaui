@@ -924,6 +924,7 @@ function Tab:Separator(args)
     return element
 end
 
+-- Options is an array of strings, finite numbers, or booleans.
 function Tab:Dropdown(args)
     args = args or {}
     local text = args.Text or "Dropdown"
@@ -931,7 +932,9 @@ function Tab:Dropdown(args)
         assert(type(values) == "table", "Dropdown options must be a table")
         local result, seen = {}, {}
         for _, option in ipairs(values) do
-            assert(type(option) ~= "number" or finiteNumber(option, nil), "Dropdown options must be finite")
+            local kind = type(option)
+            assert(kind == "string" or kind == "boolean" or kind == "number" and finiteNumber(option, nil),
+                "Dropdown options must be strings, finite numbers, or booleans")
             if not seen[option] then
                 seen[option] = true
                 table.insert(result, option)
@@ -939,7 +942,7 @@ function Tab:Dropdown(args)
         end
         return result, seen
     end
-    local options, optionSet = normalizeOptions(args.Options or {})
+    local options, optionSet = normalizeOptions(if args.Options == nil then {} else args.Options)
     local multiSelect = args.Multi or false
     local callback = args.Callback
     local flag = args.Flag or args.Save
