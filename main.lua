@@ -1703,7 +1703,8 @@ function UILibrary:_SetSaveStatus(status)
     self.SaveStatus = status
     if self.SaveIndicator and not self.Destroyed then
         self.SaveIndicator.Text = status == "Failed" and "Save failed"
-            or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered" or ""
+            or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered"
+            or status == "FileCheckUnavailable" and "No file check" or ""
         self.SaveIndicator.Visible = self.SaveIndicator.Text ~= ""
         self.TitleBar.Title.Size = UDim2.new(1, self.SaveIndicator.Visible and -106 or -20, 1, 0)
     end
@@ -2498,13 +2499,12 @@ local function runConfigOperation(operation)
 end
 
 local function readConfig(path)
-    local isfile = getEnvFunction("isfile")
-    if isfile then
-        local checked, exists = safeCall(isfile, path)
-        if checked and exists == false then return nil, nil, "missing" end
-    end
+    local checked, exists = safeCall(getEnvFunction("isfile"), path)
+    if checked and exists == false then return nil, nil, "missing" end
     local read, data = safeCall(getEnvFunction("readfile"), path)
-    if not read or type(data) ~= "string" then return nil, nil, "unreadable" end
+    if not read or type(data) ~= "string" then
+        return nil, nil, checked and exists == true and "unreadable" or "unchecked"
+    end
     local ok, decoded = pcall(HttpService.JSONDecode, HttpService, data)
     if ok and type(decoded) == "table" then return decoded, data end
     return nil, nil, "invalid"
@@ -2573,15 +2573,17 @@ function UILibrary:_WriteConfig(automatic)
             -- Read under the write lock so unopened files and external edits are preserved.
             local flags, bytes, primaryError = readConfig(path)
             local backupError
-            if not flags and primaryError ~= "unreadable" then
+            if not flags and (primaryError == "missing" or primaryError == "invalid") then
                 local recovered, _, reason = readConfig(path .. ".bak")
                 flags, backupError = recovered, reason
             end
             local missing = primaryError == "missing" and backupError == "missing"
             local unreadable = primaryError == "unreadable" or backupError == "unreadable"
-            if unreadable or automatic and not flags and not missing then
+            local unchecked = primaryError == "unchecked" or backupError == "unchecked"
+            if unchecked or unreadable or automatic and not flags and not missing then
                 self._autoSaveBlocked = true
-                failureStatus = "LoadFailed"
+                failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
+                if unchecked then error("cannot confirm missing config without a working isfile: " .. path) end
                 error("cannot safely save config to " .. path)
             end
             local snapshot = copyFlagValue(self.flags)
@@ -2656,10 +2658,13 @@ function UILibrary:_ReadConfig(applyCallbacks)
     end
     file.busy = nil
     -- Only a confirmed missing file is safe to initialize automatically.
-    self._autoSaveBlocked = primaryError == "unreadable"
+    local unchecked = primaryError == "unchecked" or not decoded and backupError == "unchecked"
+    self._autoSaveBlocked = unchecked or primaryError == "unreadable"
         or not decoded and (primaryError ~= "missing" or backupError ~= "missing")
+    local failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
     if self._autoSaveBlocked then
-        self:_SetSaveStatus("LoadFailed")
+        self:_SetSaveStatus(failureStatus)
+        if unchecked then warn("UILibrary: cannot confirm missing config without a working isfile: " .. self.ConfigPath) end
         if self._saveTask then task.cancel(self._saveTask); self._saveTask = nil end
     end
     if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
@@ -2671,7 +2676,7 @@ function UILibrary:_ReadConfig(applyCallbacks)
         end
         return false
     end
-    self:_SetSaveStatus(self._autoSaveBlocked and "LoadFailed" or recovered and "Recovered" or "Ready")
+    self:_SetSaveStatus(self._autoSaveBlocked and failureStatus or recovered and "Recovered" or "Ready")
 
     if self._saveTask then
         task.cancel(self._saveTask)

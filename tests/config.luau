@@ -15,8 +15,8 @@ function http:JSONEncode(flags)
 end
 function http:JSONDecode(bytes) return table.clone(assert(encoded[tonumber(bytes)])) end
 local game = {GetService = function(_, name) return name == "HttpService" and http or {} end}
-local lastWorker
-local function warn() end
+local lastWarning, lastWorker
+local function warn(message) lastWarning = message end
 local task = {
     wait = coroutine.yield,
     spawn = function(fn)
@@ -247,5 +247,17 @@ assert(coroutine.close(a))
 assert(coroutine.resume(writer) and coroutine.status(writer) == "dead")
 assert(lib.Destroyed and http:JSONDecode(files["destroy-flush"]).Final == 1)
 env.writefile = writefile
+
+local isfile = env.isfile
+env.isfile = nil
+lib = newLibrary("unknown")
+assert(not lib:LoadConfig() and lib.SaveStatus == "FileCheckUnavailable")
+lib:SetFlag("Volume", 1)
+assert(not lib:SaveConfig() and files.unknown == nil)
+assert(lastWarning:find("isfile", 1, true))
+assert(lib:SetConfigFile("destination") and lib:LoadConfig())
+lib:SetFlag("Volume", 7)
+assert(lib:SaveConfig() and http:JSONDecode(files.destination).Volume == 7)
+env.isfile = isfile
 
 print("Config regression checks passed")
