@@ -2488,6 +2488,15 @@ local function lockConfigFile(file)
     file.busy = true
 end
 
+local function runConfigOperation(operation)
+    -- If the caller is cancelled while waiting, the worker still releases the file lock.
+    local result
+    task.spawn(function() result = table.pack(pcall(operation)) end)
+    while not result do task.wait() end
+    if not result[1] then error(result[2], 0) end
+    return result[2]
+end
+
 local function readConfig(path)
     local isfile = getEnvFunction("isfile")
     if isfile then
@@ -2508,6 +2517,7 @@ function UILibrary:SetConfigFile(fileName)
     local path = normalizeConfigPath(self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName)
     if not path then return false end
     local file = configFileState(path)
+    local previousFile = self._configFileState
     if not self._autoSaveBlocked then
         if (self._saveTask or self.AutoSave and self._configDirty) and not self:_SaveConfig(true) then return false end
         if self._configDirty and self.AutoSave then return false end
@@ -2515,6 +2525,7 @@ function UILibrary:SetConfigFile(fileName)
         self._autoSaveBlocked = nil
         self:_SetSaveStatus("Ready")
     end
+    if self.Destroyed or self._destroying or self._configBusy or self._configFileState ~= previousFile then return false end
     self.ConfigFile = fileName
     self.ConfigPath = path
     if self._configFileState ~= file then
@@ -2530,6 +2541,10 @@ function UILibrary:SaveConfig()
 end
 
 function UILibrary:_SaveConfig(automatic)
+    return runConfigOperation(function() return self:_WriteConfig(automatic) end)
+end
+
+function UILibrary:_WriteConfig(automatic)
     if self.Destroyed and not self._flushOnDestroy then return false end
     if self._configBusy then
         if self._configBusy == "save" then self._saveAgain = true end
@@ -2619,6 +2634,10 @@ function UILibrary:_SaveConfig(automatic)
 end
 
 function UILibrary:LoadConfig(applyCallbacks)
+    return runConfigOperation(function() return self:_ReadConfig(applyCallbacks) end)
+end
+
+function UILibrary:_ReadConfig(applyCallbacks)
     if self.Destroyed or self._destroying or self._configBusy then return false end
     if not getEnvFunction("readfile") and not getEnvFunction("writefile") then
         return false
@@ -2646,7 +2665,7 @@ function UILibrary:LoadConfig(applyCallbacks)
     if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
         self._configBusy = nil
         if self.Destroyed and self._flushOnDestroy and not self._autoSaveBlocked then
-            self:_SaveConfig(true)
+            self:_WriteConfig(true)
         elseif self._configDirty then
             self:_QueueSave()
         end
@@ -2692,17 +2711,28 @@ function UILibrary:LoadConfig(applyCallbacks)
     return true
 end
 
+local function finishDestroy(self)
+    self.Destroyed = true
+    disconnectAll(self._connections)
+    for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
+    if self.ScreenGui and not self._screenDestroying then self.ScreenGui:Destroy() end
+end
+
 function UILibrary:Destroy()
     if self.Destroyed or self._destroying then return end
     self._destroying = true
     self:_CancelInteractions()
     if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
-        if self._configBusy == "load" then self._flushOnDestroy = true else self:_SaveConfig(true) end
+        if self._configBusy == "load" then
+            self._flushOnDestroy = true
+        elseif not self._configBusy then
+            return runConfigOperation(function()
+                self:_WriteConfig(true)
+                finishDestroy(self)
+            end)
+        end
     end
-    self.Destroyed = true
-    disconnectAll(self._connections)
-    for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
-    if self.ScreenGui and not self._screenDestroying then self.ScreenGui:Destroy() end
+    finishDestroy(self)
 end
 
 function Tab:RemoveTab()

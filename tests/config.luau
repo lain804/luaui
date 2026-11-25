@@ -15,9 +15,15 @@ function http:JSONEncode(flags)
 end
 function http:JSONDecode(bytes) return table.clone(assert(encoded[tonumber(bytes)])) end
 local game = {GetService = function(_, name) return name == "HttpService" and http or {} end}
+local lastWorker
 local function warn() end
 local task = {
     wait = coroutine.yield,
+    spawn = function(fn)
+        lastWorker = coroutine.create(fn)
+        assert(coroutine.resume(lastWorker))
+        return lastWorker
+    end,
     delay = function(_, fn) timers[fn] = true; return fn end,
     cancel = function(fn) timers[fn] = nil end,
 }
@@ -131,10 +137,14 @@ env.writefile = function(path, bytes)
 end
 local a = coroutine.create(function() assert(first:SaveConfig()) end)
 local b = coroutine.create(function() assert(second:SaveConfig()) end)
-assert(select(2, coroutine.resume(a)) == "writing")
+assert(coroutine.resume(a) and coroutine.status(a) == "suspended")
+local writer = lastWorker
 assert(coroutine.resume(b) and coroutine.status(b) == "suspended")
+local waiter = lastWorker
+assert(coroutine.resume(writer) and coroutine.status(writer) == "dead")
 assert(coroutine.resume(a) and coroutine.status(a) == "dead")
-assert(select(2, coroutine.resume(b)) == "writing")
+assert(select(2, coroutine.resume(waiter)) == "writing")
+assert(coroutine.resume(waiter) and coroutine.status(waiter) == "dead")
 assert(coroutine.resume(b) and coroutine.status(b) == "dead")
 env.writefile = writefile
 local merged = http:JSONDecode(files.shared)
@@ -178,14 +188,64 @@ env.writefile = function(path, bytes)
     writefile(path, bytes)
 end
 a = coroutine.create(function() assert(second:SaveConfig()) end)
-assert(select(2, coroutine.resume(a)) == "writing")
+assert(coroutine.resume(a) and coroutine.status(a) == "suspended")
+writer = lastWorker
 second:SetFlag("Volume", 9)
 second:SetFlag("Other", nil)
+assert(coroutine.resume(writer) and coroutine.status(writer) == "dead")
 assert(coroutine.resume(a) and coroutine.status(a) == "dead")
 assert(http:JSONDecode(files.destination).Volume == 8)
 env.writefile = writefile
 runTimers()
 merged = http:JSONDecode(files.destination)
 assert(merged.Volume == 9 and merged.Other == nil)
+
+first = newLibrary("cancelled")
+second = newLibrary("cancelled", loadLibrary())
+first:SetFlag("Original", true)
+env.writefile = function(path, bytes)
+    if path == "cancelled" then coroutine.yield("writing") end
+    writefile(path, bytes)
+end
+a = coroutine.create(function() first:SaveConfig() end)
+assert(coroutine.resume(a) and coroutine.status(a) == "suspended")
+writer = lastWorker
+assert(coroutine.close(a))
+env.writefile = writefile
+second:SetFlag("Next", true)
+b = coroutine.create(function() assert(second:SaveConfig()) end)
+assert(coroutine.resume(b) and coroutine.status(b) == "suspended")
+waiter = lastWorker
+assert(coroutine.resume(writer) and coroutine.status(writer) == "dead")
+assert(coroutine.resume(waiter) and coroutine.status(waiter) == "dead")
+assert(coroutine.resume(b) and coroutine.status(b) == "dead")
+merged = http:JSONDecode(files.cancelled)
+assert(merged.Original and merged.Next and first._configBusy == nil)
+
+env.readfile = function(path)
+    if path == "cancelled" then coroutine.yield("reading") end
+    return readfile(path)
+end
+a = coroutine.create(function() first:LoadConfig() end)
+assert(coroutine.resume(a) and coroutine.status(a) == "suspended")
+local reader = lastWorker
+assert(coroutine.close(a))
+assert(coroutine.resume(reader) and coroutine.status(reader) == "dead")
+env.readfile = readfile
+assert(first._configBusy == nil and second:LoadConfig())
+
+lib = newLibrary("destroy-flush")
+lib:SetFlag("Final", 1)
+env.writefile = function(path, bytes)
+    if path == "destroy-flush" then coroutine.yield("writing") end
+    writefile(path, bytes)
+end
+a = coroutine.create(function() lib:Destroy() end)
+assert(coroutine.resume(a) and coroutine.status(a) == "suspended")
+writer = lastWorker
+assert(coroutine.close(a))
+assert(coroutine.resume(writer) and coroutine.status(writer) == "dead")
+assert(lib.Destroyed and http:JSONDecode(files["destroy-flush"]).Final == 1)
+env.writefile = writefile
 
 print("Config regression checks passed")
