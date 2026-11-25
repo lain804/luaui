@@ -207,6 +207,7 @@ local function stepFocus(targets, direction, focused)
     if focused and focused ~= target then focused:ReleaseFocus() end
     GuiService.SelectedObject = target
     if target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
+    return target
 end
 
 -- User code runs after the control has finished updating. It may remove controls,
@@ -1701,7 +1702,7 @@ function UILibrary:_FocusStep(direction, focused)
             end
         end
     end
-    stepFocus(targets, direction, focused)
+    return stepFocus(targets, direction, focused)
 end
 
 function UILibrary:_HideTooltip()
@@ -2263,14 +2264,16 @@ function UILibrary.new(args)
         if self.Destroyed or not self.ScreenGui.Enabled then return end
         if self._closeDropdown or self._cancelKeybind then return end
         local focused = UserInputService:GetFocusedTextBox()
+        local selected = GuiService.SelectedObject
         if focused and not focused:IsDescendantOf(self.MainFrame) then return end
         if input.KeyCode == Enum.KeyCode.Tab and self.MainFrame.Visible then
-            self._capturedInput = input
-            self:_FocusStep(focusDirection(), focused)
+            if (focused or not selected or selected:IsDescendantOf(self.MainFrame))
+                and self:_FocusStep(focusDirection(), focused) then
+                self._capturedInput = input
+            end
             return
         end
         if gameProcessed or focused then return end
-        local selected = GuiService.SelectedObject
         if self.MainFrame.Visible and selected and selected:IsDescendantOf(self.MainFrame)
             and (input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter
                 or input.KeyCode == Enum.KeyCode.Space) then

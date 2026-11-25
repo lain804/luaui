@@ -14,7 +14,10 @@ local function signal()
         end,
     }
 end
-local input = {InputBegan = signal()}
+local input = {
+    InputBegan = signal(), InputChanged = signal(), InputEnded = signal(), WindowFocusReleased = signal(),
+    GetPropertyChangedSignal = signal,
+}
 function input:GetFocusedTextBox() return self.focused end
 function input:IsKeyDown(key) return key == "LeftControl" or key == self.modifier end
 local game = {GetService = function(_, service) return service == "UserInputService" and input or gui end}
@@ -29,6 +32,7 @@ local UDim2 = {
     fromOffset = function(x, y) return {X = UDim.new(0, x), Y = UDim.new(0, y)} end,
 }
 local task = {defer = function() end}
+local shared = {}
 local instances = {}
 local Instance = {}
 
@@ -55,9 +59,16 @@ local function target(className, parent)
 end
 
 function Instance.new(className)
-    local object = target(className)
+    local object = setmetatable(target(className), {
+        __index = function(self, key)
+            for _, child in ipairs(instances) do
+                if rawget(child, "Parent") == self and child.Name == key then return child end
+            end
+        end,
+    })
     local attributes, signals = {}, {}
     object.Name = className
+    if className == "ScreenGui" then object.Enabled = true end
     object.AbsolutePosition = Vector2.new(0, 0)
     object.AbsoluteSize = Vector2.new(600, 400)
     object.CanvasPosition = Vector2.new(0, 0)
@@ -220,5 +231,25 @@ assert(not pcall(scalar.SetOptions, scalar, {"new", {}}))
 assert(scalar:GetValue() == 0 and table.concat({scalar:GetOptions()[2], scalar:GetOptions()[3]}, ",") == "0,zero")
 assert(not pcall(tab.Dropdown, tab, {Options = {math.huge}}))
 assert(not pcall(tab.Dropdown, tab, {Options = false}))
+
+local parent = Instance.new("Frame")
+local first = UI.new({Parent = parent, AutoLoad = false, AutoSave = false})
+local second = UI.new({Parent = parent, AutoLoad = false, AutoSave = false})
+local firstTab = first:CreateTab({Name = "First"})
+local secondTab = second:CreateTab({Name = "Second"})
+local firstButton = firstTab:Button().Instance
+local secondButton = secondTab:Button().Instance
+gui.SelectedObject = firstTab.button
+input.InputBegan:Fire({KeyCode = "Tab"})
+assert(gui.SelectedObject == firstButton)
+gui.SelectedObject = secondTab.button
+input.InputBegan:Fire({KeyCode = "Tab"})
+assert(gui.SelectedObject == secondButton)
+gui.SelectedObject = mainTab
+input.InputBegan:Fire({KeyCode = "Tab"})
+assert(gui.SelectedObject == mainTab)
+gui.SelectedObject = nil
+input.InputBegan:Fire({KeyCode = "Tab"})
+assert(gui.SelectedObject == firstTab.button or gui.SelectedObject == secondTab.button)
 
 print("Focus traversal and dropdown checks passed")
