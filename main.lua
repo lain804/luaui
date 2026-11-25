@@ -1158,21 +1158,36 @@ function Tab:Dropdown(args)
         end
     end
 
+    local function paintOptionBackground(index)
+        local item = optionButtons[index]
+        if item then
+            item.Button.BackgroundColor3 = index == (hoveredIndex or activeIndex) and Theme.ElementPressed
+                or selected[item.Option] and Theme.ElementHover or Theme.Background
+        end
+    end
+
+    local function setOptionHighlight(active, hovered)
+        local previous = hoveredIndex or activeIndex
+        activeIndex, hoveredIndex = active, hovered
+        local current = hoveredIndex or activeIndex
+        if previous ~= current then
+            paintOptionBackground(previous)
+            paintOptionBackground(current)
+        end
+    end
+
     local function repaintOptions()
         for index, item in ipairs(optionButtons) do
             local isSelected = selected[item.Option] == true
 
             item.Marker.Visible = isSelected
             item.Button.TextColor3 = isSelected and Theme.Accent or Theme.Text
-            item.Button.BackgroundColor3 = index == (hoveredIndex or activeIndex) and Theme.ElementPressed
-                or isSelected and Theme.ElementHover or Theme.Background
+            paintOptionBackground(index)
         end
     end
 
     local function focusOption(index, keepSelection)
-        activeIndex = table.find(visibleIndices, index) and index or visibleIndices[1]
-        hoveredIndex = nil
-        repaintOptions()
+        setOptionHighlight(table.find(visibleIndices, index) and index or visibleIndices[1], nil)
         if not keepSelection and not search:IsFocused() then
             GuiService.SelectedObject = activeIndex and optionButtons[activeIndex].Button or search
         end
@@ -1265,7 +1280,7 @@ function Tab:Dropdown(args)
     closeDropdown = function()
         if not isOpen then return end
         isOpen = false
-        activeIndex, hoveredIndex = nil, nil
+        setOptionHighlight(nil, nil)
         if search:IsFocused() then search:ReleaseFocus() end
         if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(overlay) then
             GuiService.SelectedObject = isVisible(self.library, button) and button or nil
@@ -1342,12 +1357,10 @@ function Tab:Dropdown(args)
             if activeIndex ~= index then focusOption(index) end
         end)
         optionButton.MouseEnter:Connect(function()
-            hoveredIndex = index
-            repaintOptions()
+            setOptionHighlight(activeIndex, index)
         end)
         optionButton.MouseLeave:Connect(function()
-            if hoveredIndex == index then hoveredIndex = nil end
-            repaintOptions()
+            if hoveredIndex == index then setOptionHighlight(activeIndex, nil) end
         end)
         bindActivation(self.library, optionButton, function() chooseOption(option) end)
     end

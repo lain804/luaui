@@ -342,6 +342,38 @@ press("Down")
 press("Return")
 assert(gui.SelectedObject == mainTab)
 
+local repaintCount = 0
+for _, option in ipairs({alpha, beta, alphabet}) do
+    local mt = getmetatable(option)
+    local lookup = mt.__index
+    local background = option.BackgroundColor3
+    rawset(option, "BackgroundColor3", nil)
+    mt.__index = function(self, key)
+        if key == "BackgroundColor3" then return background end
+        return lookup(self, key)
+    end
+    mt.__newindex = function(self, key, value)
+        if key == "BackgroundColor3" then
+            background = value
+            repaintCount += 1
+        else
+            rawset(self, key, value)
+        end
+    end
+end
+trigger.Activated:Fire()
+local highlighted = alpha.BackgroundColor3
+local idle = beta.BackgroundColor3
+repaintCount = 0
+beta.MouseEnter:Fire()
+assert(repaintCount == 2 and alpha.BackgroundColor3 == idle and beta.BackgroundColor3 == highlighted)
+beta.MouseLeave:Fire()
+assert(repaintCount == 4 and alpha.BackgroundColor3 == highlighted and beta.BackgroundColor3 == idle)
+press("Down")
+assert(repaintCount == 6 and gui.SelectedObject == beta and beta.BackgroundColor3 == highlighted)
+press("Escape")
+assert(beta.BackgroundColor3 == idle)
+
 for _, callback in ipairs(deferred) do callback() end
 assert(buttonClicks == 1 and submitCount == 1)
 
