@@ -200,6 +200,13 @@ runTimers()
 merged = http:JSONDecode(files.destination)
 assert(merged.Volume == 9 and merged.Other == nil)
 
+local previous = files["destination.bak"]
+local current = files.destination
+assert(second:SaveConfig())
+second:SetFlag("Volume", 9)
+runTimers()
+assert(files.destination == current and files["destination.bak"] == previous)
+
 first = newLibrary("cancelled")
 second = newLibrary("cancelled", loadLibrary())
 first:SetFlag("Original", true)

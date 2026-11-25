@@ -2589,18 +2589,24 @@ function UILibrary:_WriteConfig(automatic)
             local snapshot = copyFlagValue(self.flags)
             local pending = table.clone(self._pendingConfigFlags)
             local merged = flags or snapshot
+            local needsWrite = bytes == nil
             if flags then
                 for flag, change in pairs(pending) do
-                    if not change.fillOnly or merged[flag] == nil then merged[flag] = snapshot[flag] end
+                    if (not change.fillOnly or merged[flag] == nil) and not sameFlagValue(merged[flag], snapshot[flag]) then
+                        merged[flag] = snapshot[flag]
+                        needsWrite = true
+                    end
                 end
             end
-            local encoded = HttpService:JSONEncode(merged)
-            if bytes then
-                local backedUp, result = safeCall(writefile, path .. ".bak", bytes)
-                assert(backedUp and result ~= false, "failed to write backup config")
+            if needsWrite then
+                local encoded = HttpService:JSONEncode(merged)
+                if bytes then
+                    local backedUp, result = safeCall(writefile, path .. ".bak", bytes)
+                    assert(backedUp and result ~= false, "failed to write backup config")
+                end
+                local wrote, result = safeCall(writefile, path, encoded)
+                assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
             end
-            local wrote, result = safeCall(writefile, path, encoded)
-            assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
             -- Setters can replace these entries while the filesystem yields.
             for flag, change in pairs(pending) do
                 if self._pendingConfigFlags[flag] == change then self._pendingConfigFlags[flag] = nil end
