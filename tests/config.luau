@@ -83,6 +83,23 @@ updated = http:JSONDecode(files.unopenedBackup)
 assert(updated.Audio and updated.Volume == 3)
 assert(files["unopenedBackup.bak"] == recovered)
 
+files.unopenedBackup = "invalid"
+local repairWrite = env.writefile
+env.writefile = function(path, bytes)
+    if path == "unopenedBackup.bak" then
+        files[path] = ""
+        error("backup write failed after truncation")
+    end
+    if path == "unopenedBackup" then error("primary write failed") end
+    repairWrite(path, bytes)
+end
+lib:SetFlag("Volume", 4)
+assert(not lib:SaveConfig())
+assert(files["unopenedBackup.bak"] == recovered)
+env.writefile = repairWrite
+assert(lib:SaveConfig())
+assert(http:JSONDecode(files.unopenedBackup).Volume == 4)
+
 files.unopenedInvalid = "invalid"
 lib = newLibrary("unopenedInvalid")
 lib:SetFlag("Speed", 32)

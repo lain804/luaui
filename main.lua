@@ -2446,7 +2446,8 @@ function UILibrary:_SaveConfig(automatic)
             local flags, bytes, primaryError = readConfig(path)
             local backupError
             if not flags and primaryError ~= "unreadable" then
-                flags, bytes, backupError = readConfig(path .. ".bak")
+                local recovered, _, reason = readConfig(path .. ".bak")
+                flags, backupError = recovered, reason
             end
             local missing = primaryError == "missing" and backupError == "missing"
             local unreadable = primaryError == "unreadable" or backupError == "unreadable"
