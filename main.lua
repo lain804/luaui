@@ -726,6 +726,7 @@ function Tab:Slider(args)
     local function stopDragging()
         dragging = false
         pointer = nil
+        disconnectAll(connections)
         renderGesture()
     end
     detector.MouseEnter:Connect(function() hovering = true; renderGesture() end)
@@ -787,24 +788,23 @@ function Tab:Slider(args)
         if not isPointerPress(input) then return end
         dragging = true
         pointer = input
+        table.insert(connections, UserInputService.InputChanged:Connect(function(changed)
+            if pointer ~= input then return end
+            if not isVisible(self.library, detector)
+                or changed == input and changed.UserInputState == Enum.UserInputState.Cancel then
+                stopDragging()
+            elseif changed == input or input.UserInputType == Enum.UserInputType.MouseButton1
+                and changed.UserInputType == Enum.UserInputType.MouseMovement then
+                updateSlider(changed.Position)
+            end
+        end))
+        table.insert(connections, UserInputService.InputEnded:Connect(function(ended)
+            if ended == pointer then stopDragging() end
+        end))
+        table.insert(connections, UserInputService.WindowFocusReleased:Connect(stopDragging))
         renderGesture()
         updateSlider(input.Position)
     end)
-
-    table.insert(connections, UserInputService.InputChanged:Connect(function(input)
-        if dragging and (not isVisible(self.library, detector)
-            or input == pointer and input.UserInputState == Enum.UserInputState.Cancel) then stopDragging(); return end
-        if dragging and (input == pointer or pointer.UserInputType == Enum.UserInputType.MouseButton1
-            and input.UserInputType == Enum.UserInputType.MouseMovement) then
-            updateSlider(input.Position)
-        end
-    end))
-    table.insert(connections, UserInputService.InputEnded:Connect(function(input)
-        if input == pointer then
-            stopDragging()
-        end
-    end))
-    table.insert(connections, UserInputService.WindowFocusReleased:Connect(stopDragging))
 
     render()
 
@@ -815,9 +815,6 @@ function Tab:Slider(args)
             hovering = false
             stopDragging()
             releaseEditing()
-        end,
-        Cleanup = function()
-            disconnectAll(connections)
         end,
         GetValue = function() return value end,
         SetValue = setValue

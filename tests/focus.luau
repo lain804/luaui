@@ -12,6 +12,11 @@ local function signal()
         Fire = function(_, ...)
             for listener in pairs(table.clone(listeners)) do listener(...) end
         end,
+        Count = function()
+            local count = 0
+            for _ in pairs(listeners) do count += 1 end
+            return count
+        end,
     }
 end
 local input = {
@@ -373,6 +378,27 @@ press("Down")
 assert(repaintCount == 6 and gui.SelectedObject == beta and beta.BackgroundColor3 == highlighted)
 press("Escape")
 assert(beta.BackgroundColor3 == idle)
+
+local idleListeners = input.InputChanged:Count()
+local slider = controls:Slider({Min = 0, Max = 100})
+controls:Slider()
+assert(input.InputChanged:Count() == idleListeners)
+local track = child(slider.Instance, "Frame")
+track.AbsoluteSize = Vector2.new(100, 10)
+local detector = child(track, "TextButton")
+local pointer = {UserInputType = "MouseButton1", Position = Vector2.new(20, 0)}
+detector.InputBegan:Fire(pointer)
+assert(input.InputChanged:Count() == idleListeners + 1 and slider:GetValue() == 20)
+input.InputChanged:Fire({UserInputType = "MouseMovement", Position = Vector2.new(60, 0)})
+assert(slider:GetValue() == 60)
+input.InputEnded:Fire(pointer)
+assert(input.InputChanged:Count() == idleListeners)
+detector.InputBegan:Fire(pointer)
+input.WindowFocusReleased:Fire()
+assert(input.InputChanged:Count() == idleListeners)
+detector.InputBegan:Fire(pointer)
+slider:Hide()
+assert(input.InputChanged:Count() == idleListeners)
 
 for _, callback in ipairs(deferred) do callback() end
 assert(buttonClicks == 1 and submitCount == 1)
