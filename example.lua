@@ -8,7 +8,7 @@ if libraryModule or game:GetService("RunService"):IsStudio() then
     assert(libraryModule and libraryModule:IsA("ModuleScript"), "Place the main ModuleScript beside the showcase")
     UI = require(libraryModule)
 else
-    UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/e806d5fa8703ae4e5b9dfd9f1bfe43f951a719be/main.lua"))()
+    UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/971054910d5266e395c12c25861396d04e6d7dc3/main.lua"))()
 end
 
 local Library = UI.new({
@@ -38,6 +38,8 @@ local StatusLabel = MainTab:Label({
 MainTab:Label({
     Text = "RightShift to hide/show. Drag the title or bottom-right corner."
 })
+
+MainTab:Label({ Text = "Left/Right switches tabs. Up/Down selects. Enter activates." })
 
 MainTab:Button({
     Text = "Click Me",
