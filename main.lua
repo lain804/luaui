@@ -192,7 +192,12 @@ local function bindActivation(library, button, callback)
     end
     library._activationHandlers[button] = activate
     button.Destroying:Connect(function() library._activationHandlers[button] = nil end)
-    return button.Activated:Connect(activate)
+    return button.Activated:Connect(function(input, ...)
+        if input and isPointerPress(input) and isVisible(library, button) and button.Selectable then
+            GuiService.SelectedObject = button
+        end
+        activate(input, ...)
+    end)
 end
 
 local function focusDirection()
@@ -200,13 +205,30 @@ local function focusDirection()
         and -1 or 1
 end
 
-local function stepFocus(targets, direction, focused)
+local function revealSelection(frame, object, axis)
+    local start = object.AbsolutePosition[axis] - frame.AbsolutePosition[axis]
+    local length = object.AbsoluteSize[axis]
+    local viewport = frame.AbsoluteWindowSize[axis]
+    local canvas = frame.CanvasPosition
+    local offset = canvas[axis]
+    if start < 0 or length >= viewport then
+        offset = math.max(offset + start, 0)
+    elseif start + length > viewport then
+        offset = offset + start + length - viewport
+    else
+        return
+    end
+    frame.CanvasPosition = axis == "X" and Vector2.new(offset, canvas.Y) or Vector2.new(canvas.X, offset)
+end
+
+local function stepFocus(targets, direction, focused, controlCanvas)
     if #targets == 0 then return end
     local index = table.find(targets, focused or GuiService.SelectedObject) or (direction > 0 and 0 or 1)
     local target = targets[(index - 1 + direction) % #targets + 1]
     if focused and focused ~= target then focused:ReleaseFocus() end
+    if controlCanvas then revealSelection(controlCanvas, target, "Y") end
     GuiService.SelectedObject = target
-    if target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
+    if not controlCanvas and target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
     return target
 end
 
@@ -1082,9 +1104,6 @@ function Tab:Dropdown(args)
     searchPadding.PaddingRight = UDim.new(0, 8)
     searchPadding.Parent = search
     self.library:_DecorateObject(search)
-    search.Focused:Connect(function()
-        if isVisible(self.library, search) then GuiService.SelectedObject = search end
-    end)
 
     local bulkButtons = {}
     local resetBulkFeedback = {}
@@ -1433,6 +1452,7 @@ function Tab:Dropdown(args)
             local selectedObject = GuiService.SelectedObject
             if focused ~= search and (focused or not selectedObject
                 or not selectedObject:IsDescendantOf(dropdown) or not isVisible(self.library, selectedObject)) then return end
+            self.library._capturedInput = input
             if key == Enum.KeyCode.Escape and focused == search then
                 search:ReleaseFocus()
                 focusOption(activeIndex)
@@ -1679,15 +1699,19 @@ function UILibrary:_SetSaveStatus(status)
     end
 end
 
-function UILibrary:_FocusStep(direction, focused)
+function UILibrary:_FocusStep(direction, focused, controlsOnly)
     local targets = {}
-    for _, tab in ipairs(self.tabs) do
-        if tab.button.Selectable and isVisible(self, tab.button) then
-            table.insert(targets, tab.button)
+    if not controlsOnly then
+        for _, tab in ipairs(self.tabs) do
+            if tab.button.Selectable and isVisible(self, tab.button) then
+                table.insert(targets, tab.button)
+            end
         end
     end
+    local controlCanvas
     for _, tab in ipairs(self.tabs) do
         if tab.name == self.currentTab then
+            if controlsOnly then controlCanvas = tab.content end
             for _, element in ipairs(tab.elements) do
                 if not element.Hidden then
                     local objects = element.Instance:GetDescendants()
@@ -1700,9 +1724,23 @@ function UILibrary:_FocusStep(direction, focused)
                     end
                 end
             end
+            break
         end
     end
-    return stepFocus(targets, direction, focused)
+    return stepFocus(targets, direction, focused, controlCanvas)
+end
+
+function UILibrary:_StepTab(direction)
+    for index, tab in ipairs(self.tabs) do
+        if tab.name == self.currentTab then
+            local nextTab = self.tabs[(index - 1 + direction) % #self.tabs + 1]
+            if self:SwitchTab(nextTab.name) then
+                revealSelection(self.TabContainer, nextTab.button, "X")
+                GuiService.SelectedObject = nextTab.button
+                return true
+            end
+        end
+    end
 end
 
 function UILibrary:_HideTooltip()
@@ -1738,8 +1776,16 @@ function UILibrary:_DecorateObject(object)
         object.SelectionGained:Connect(renderFocus)
         object.SelectionLost:Connect(renderFocus)
         if isTextBox then
-            object.Focused:Connect(renderFocus)
-            object.FocusLost:Connect(renderFocus)
+            object.Focused:Connect(function()
+                if isVisible(self, object) then GuiService.SelectedObject = object end
+                renderFocus()
+            end)
+            object.FocusLost:Connect(function(submitted)
+                if submitted and not self._closeDropdown and not GuiService.SelectedObject and isVisible(self, object) then
+                    GuiService.SelectedObject = object
+                end
+                renderFocus()
+            end)
         end
     end
     if not (object:IsA("TextLabel") or object:IsA("TextButton")) then return end
@@ -2227,6 +2273,9 @@ function UILibrary.new(args)
     self.TitleBar.Active = true
     self.TitleBar.InputBegan:Connect(function(input)
         if dragging or resizing or not isPointerPress(input) or not isVisible(self, self.TitleBar) then return end
+        for _, tab in ipairs(self.tabs) do
+            if tab.name == self.currentTab then GuiService.SelectedObject = tab.button; break end
+        end
         dragging = true
         pointer, dragStart, startPos = input, input.Position, self.MainFrame.Position
         self.TitleBar.BorderColor3 = Theme.BorderHover
@@ -2262,11 +2311,22 @@ function UILibrary.new(args)
     table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if self.Destroyed or not self.ScreenGui.Enabled then return end
-        if self._closeDropdown or self._cancelKeybind then return end
-        local focused = UserInputService:GetFocusedTextBox()
         local selected = GuiService.SelectedObject
+        if isPointerPress(input) then
+            if selected and selected:IsDescendantOf(self.MainFrame) then
+                local position, size = self.MainFrame.AbsolutePosition, self.MainFrame.AbsoluteSize
+                local x, y = input.Position.X, input.Position.Y
+                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
+                    GuiService.SelectedObject = nil
+                end
+            end
+            return
+        end
+        if self._closeDropdown or self._cancelKeybind or self._capturedInput == input then return end
+        local focused = UserInputService:GetFocusedTextBox()
+        local key = input.KeyCode
         if focused and not focused:IsDescendantOf(self.MainFrame) then return end
-        if input.KeyCode == Enum.KeyCode.Tab and self.MainFrame.Visible then
+        if key == Enum.KeyCode.Tab and self.MainFrame.Visible then
             if (focused or not selected or selected:IsDescendantOf(self.MainFrame))
                 and self:_FocusStep(focusDirection(), focused) then
                 self._capturedInput = input
@@ -2274,13 +2334,24 @@ function UILibrary.new(args)
             return
         end
         if gameProcessed or focused then return end
-        if self.MainFrame.Visible and selected and selected:IsDescendantOf(self.MainFrame)
-            and (input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter
-                or input.KeyCode == Enum.KeyCode.Space) then
-            local activate = self._activationHandlers and self._activationHandlers[selected]
-            if activate then self._capturedInput = input; activate(); return end
+        if selected and selected:IsDescendantOf(self.MainFrame) and isVisible(self, selected) then
+            local enter = key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter
+            if key == Enum.KeyCode.Left or key == Enum.KeyCode.Right then
+                if self:_StepTab(key == Enum.KeyCode.Left and -1 or 1) then self._capturedInput = input end
+                return
+            elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down then
+                if self:_FocusStep(key == Enum.KeyCode.Up and -1 or 1, nil, true) then self._capturedInput = input end
+                return
+            elseif enter and selected:IsA("TextBox") then
+                self._capturedInput = input
+                selected:CaptureFocus()
+                return
+            elseif enter or key == Enum.KeyCode.Space then
+                local activate = self._activationHandlers and self._activationHandlers[selected]
+                if activate then self._capturedInput = input; activate(); return end
+            end
         end
-        if input.KeyCode == (args.KeyCode or Enum.KeyCode.KeypadZero) then
+        if key == (args.KeyCode or Enum.KeyCode.KeypadZero) then
             self.MainFrame.Visible = not self.MainFrame.Visible
         end
     end))
@@ -2624,16 +2695,7 @@ function Tab:_RevealButton()
     task.defer(function()
         local button = self.button
         if self.Destroyed or not isVisible(self.library, button) then return end
-        local rail = self.library.TabContainer
-        local left = button.AbsolutePosition.X - rail.AbsolutePosition.X
-        local width = button.AbsoluteSize.X
-        local viewWidth = rail.AbsoluteWindowSize.X
-        local offset = rail.CanvasPosition.X
-        if left < 0 or width >= viewWidth then
-            rail.CanvasPosition = Vector2.new(math.max(offset + left, 0), 0)
-        elseif left + width > viewWidth then
-            rail.CanvasPosition = Vector2.new(offset + left + width - viewWidth, 0)
-        end
+        revealSelection(self.library.TabContainer, button, "X")
     end)
 end
 

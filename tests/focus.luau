@@ -31,7 +31,8 @@ local UDim2 = {
     new = function(xs, xo, ys, yo) return {X = UDim.new(xs, xo), Y = UDim.new(ys, yo)} end,
     fromOffset = function(x, y) return {X = UDim.new(0, x), Y = UDim.new(0, y)} end,
 }
-local task = {defer = function() end}
+local deferred = {}
+local task = {defer = function(callback) table.insert(deferred, callback) end}
 local shared = {}
 local instances = {}
 local Instance = {}
@@ -46,7 +47,14 @@ local function target(className, parent)
         return class == className or class == "GuiObject" and className ~= "ScreenGui"
             or class == "GuiButton" and className == "TextButton"
     end
-    function object:GetDescendants() return self.Descendants or {} end
+    function object:GetDescendants()
+        if self.Descendants then return self.Descendants end
+        local descendants = {}
+        for _, instance in ipairs(instances) do
+            if instance:IsDescendantOf(self) then table.insert(descendants, instance) end
+        end
+        return descendants
+    end
     function object:IsDescendantOf(ancestor)
         local current = self.Parent
         while current do
@@ -71,6 +79,8 @@ function Instance.new(className)
     if className == "ScreenGui" then object.Enabled = true end
     object.AbsolutePosition = Vector2.new(0, 0)
     object.AbsoluteSize = Vector2.new(600, 400)
+    object.AbsoluteWindowSize = object.AbsoluteSize
+    object.AbsoluteContentSize = Vector2.new(0, 0)
     object.CanvasPosition = Vector2.new(0, 0)
     function object:SetAttribute(name, value) attributes[name] = value end
     function object:GetAttribute(name) return attributes[name] end
@@ -79,6 +89,10 @@ function Instance.new(className)
         return signals[name]
     end
     function object:IsFocused() return input.focused == self end
+    function object:CaptureFocus()
+        input.focused = self
+        self.Focused:Fire()
+    end
     function object:ReleaseFocus(submitted)
         input.focused = nil
         gui.SelectedObject = nil
@@ -251,5 +265,84 @@ assert(gui.SelectedObject == mainTab)
 gui.SelectedObject = nil
 input.InputBegan:Fire({KeyCode = "Tab"})
 assert(gui.SelectedObject == firstTab.button or gui.SelectedObject == secondTab.button)
+
+local function press(key, processed)
+    local event = {KeyCode = key, UserInputType = "Keyboard"}
+    input.InputBegan:Fire(event, processed)
+    input.InputEnded:Fire(event)
+end
+local controls = first:CreateTab({Name = "Controls"})
+local submitCount, buttonClicks = 0, 0
+local buttonControl = controls:Button({Callback = function() buttonClicks += 1 end}).Instance
+local hiddenControl = controls:Toggle()
+hiddenControl:Hide()
+local toggle = controls:Toggle()
+local field = controls:Textbox({Callback = function(_, submitted)
+    if submitted then submitCount += 1 end
+end}).Instance
+local entry = child(child(field, "TextboxInput"), "TextBox")
+entry.AbsolutePosition = Vector2.new(12, 420)
+entry.AbsoluteSize = Vector2.new(100, 28)
+local choice = controls:Dropdown({Options = {"One", "Two"}, Default = "One"})
+local choiceTrigger = child(choice.Instance, "TextButton")
+choiceTrigger.AbsolutePosition = Vector2.new(310, 330)
+choiceTrigger.AbsoluteSize = Vector2.new(240, 30)
+local choicePopup = child(child(first.MainFrame, "DropdownOverlay"), "DropdownList")
+
+gui.SelectedObject = nil
+press("Right")
+assert(first.currentTab == "First" and gui.SelectedObject == nil)
+local click = {UserInputType = "MouseButton1", Position = Vector2.new(10, 10)}
+firstTab.button.Activated:Fire(click)
+assert(gui.SelectedObject == firstTab.button)
+press("Right", true)
+assert(first.currentTab == "First")
+press("Right")
+assert(first.currentTab == "Controls" and gui.SelectedObject == controls.button)
+assert(second.currentTab == "Second")
+press("Down")
+assert(gui.SelectedObject == buttonControl)
+press("Return")
+press("Down")
+assert(gui.SelectedObject == toggle.Instance)
+press("KeypadEnter")
+assert(toggle:GetValue() == true)
+press("Down")
+assert(gui.SelectedObject == entry and not entry:IsFocused())
+assert(controls.content.CanvasPosition.Y == 48)
+press("Return")
+assert(entry:IsFocused())
+press("Left")
+press("Up")
+assert(first.currentTab == "Controls" and entry:IsFocused())
+entry.Text = "Typed"
+entry:ReleaseFocus(true)
+assert(gui.SelectedObject == entry)
+press("Down")
+assert(gui.SelectedObject == choiceTrigger)
+press("Return")
+assert(choicePopup.Visible)
+press("Left")
+assert(first.currentTab == "Controls" and choicePopup.Visible)
+press("Down")
+press("Return")
+assert(choice:GetValue() == "Two" and not choicePopup.Visible)
+press("Left")
+assert(first.currentTab == "First" and gui.SelectedObject == firstTab.button)
+press("Left")
+assert(first.currentTab == "Controls" and gui.SelectedObject == controls.button)
+press("Up")
+assert(gui.SelectedObject == choiceTrigger)
+click.Position = Vector2.new(700, 700)
+input.InputBegan:Fire(click)
+press("Right")
+assert(first.currentTab == "Controls" and gui.SelectedObject == nil)
+gui.SelectedObject = mainTab
+press("Down")
+press("Return")
+assert(gui.SelectedObject == mainTab)
+
+for _, callback in ipairs(deferred) do callback() end
+assert(buttonClicks == 1 and submitCount == 1)
 
 print("Focus traversal and dropdown checks passed")
