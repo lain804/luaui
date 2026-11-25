@@ -8,7 +8,7 @@ if libraryModule or game:GetService("RunService"):IsStudio() then
     assert(libraryModule and libraryModule:IsA("ModuleScript"), "Place the main ModuleScript beside the showcase")
     UI = require(libraryModule)
 else
-    UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/971054910d5266e395c12c25861396d04e6d7dc3/main.lua"))()
+    UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/lain804/luaui/4335a46cf7fe560dcd231f57dc508eb425a377ec/main.lua"))()
 end
 
 local Library = UI.new({
