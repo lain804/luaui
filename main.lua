@@ -481,7 +481,7 @@ function Tab:_BindFlag(flag, element)
     if flag then
         assert(not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
         self.library.elementsByFlag[flag] = element
-        self.library:_StoreFlag(flag, element:_GetPersistedValue())
+        self.library:_StoreFlag(flag, element:_GetPersistedValue(), true)
     end
 end
 
@@ -1397,9 +1397,7 @@ function Tab:Dropdown(args)
         -- Filtering preserves order, so only a shorter selection can have changed.
         local selectionChanged = #previousSelection ~= #selectionOrder
 
-        -- Refresh and save every time, but only notify the callback when changing
-        -- the option list invalidated part of the current selection.
-        updateDisplay(noCallback or not selectionChanged)
+        if selectionChanged then updateDisplay(noCallback) else renderSelection() end
     end
 
     rebuildOptionButtons()
@@ -2321,16 +2319,18 @@ function UILibrary:SetFlag(flag, value, noCallback)
     end
 end
 
-function UILibrary:_StoreFlag(flag, value)
+function UILibrary:_StoreFlag(flag, value, fillOnly)
     if self.Destroyed then return end
-    if not sameFlagValue(self.flags[flag], value) then
+    local changed = not sameFlagValue(self.flags[flag], value)
+    if changed then
         self.flags[flag] = copyFlagValue(value)
-        if not self._loading then
-            self._configDirty = true
-            self._configVersion = (self._configVersion or 0) + 1
-        end
     end
-    -- A prior failed write can be retried even when this value is unchanged.
+    if not self._loading and (changed or not fillOnly) then
+        local pending = self._pendingConfigFlags[flag]
+        self._pendingConfigFlags[flag] = {fillOnly = fillOnly and (not pending or pending.fillOnly)}
+        self._configDirty = true
+        self._configVersion = (self._configVersion or 0) + 1
+    end
     if self._configDirty then self:_QueueSave() end
 end
 
@@ -2406,7 +2406,8 @@ function UILibrary:SetConfigFile(fileName)
     self.ConfigPath = path
     if self._configFileState ~= file then
         self._configFileState = file
-        self._savedFlags = nil
+        self._pendingConfigFlags = {}
+        for flag in pairs(self.flags) do self._pendingConfigFlags[flag] = {fillOnly = true} end
     end
     return true
 end
@@ -2440,7 +2441,6 @@ function UILibrary:_SaveConfig(automatic)
     local success, failure
     local failureStatus = "Failed"
     repeat
-        local version = self._configVersion or 0
         success, failure = pcall(function()
             -- Read under the write lock so unopened files and external edits are preserved.
             local flags, bytes, primaryError = readConfig(path)
@@ -2457,15 +2457,11 @@ function UILibrary:_SaveConfig(automatic)
                 error("cannot safely save config to " .. path)
             end
             local snapshot = copyFlagValue(self.flags)
-            local merged = snapshot
+            local pending = table.clone(self._pendingConfigFlags)
+            local merged = flags or snapshot
             if flags then
-                merged = flags
-                local baseline = self._savedFlags or {}
-                for flag, value in pairs(snapshot) do
-                    if not sameFlagValue(value, baseline[flag]) then merged[flag] = value end
-                end
-                for flag in pairs(baseline) do
-                    if snapshot[flag] == nil then merged[flag] = nil end
+                for flag, change in pairs(pending) do
+                    if not change.fillOnly or merged[flag] == nil then merged[flag] = snapshot[flag] end
                 end
             end
             local encoded = HttpService:JSONEncode(merged)
@@ -2475,9 +2471,12 @@ function UILibrary:_SaveConfig(automatic)
             end
             local wrote, result = safeCall(writefile, path, encoded)
             assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
-            self._savedFlags = snapshot
+            -- Setters can replace these entries while the filesystem yields.
+            for flag, change in pairs(pending) do
+                if self._pendingConfigFlags[flag] == change then self._pendingConfigFlags[flag] = nil end
+            end
         end)
-        self._configDirty = not success or (self._configVersion or 0) ~= version
+        self._configDirty = not success or next(self._pendingConfigFlags) ~= nil
         -- A write already in flight may outlive Destroy. Flush the final edits
         -- without recreating a timer or touching the destroyed GUI.
     until not (success and (self.Destroyed or self._destroying) and self.AutoSave and self._configDirty)
@@ -2540,7 +2539,6 @@ function UILibrary:LoadConfig(applyCallbacks)
         end
         return false
     end
-    self._savedFlags = decoded
     self:_SetSaveStatus(self._autoSaveBlocked and "LoadFailed" or recovered and "Recovered" or "Ready")
 
     if self._saveTask then
@@ -2548,12 +2546,14 @@ function UILibrary:LoadConfig(applyCallbacks)
         self._saveTask = nil
     end
     self._configDirty = false
+    self._pendingConfigFlags = {}
     self.flags = copyFlagValue(decoded)
     self.loadedFlags = copyFlagValue(decoded)
     for _, tab in ipairs(self.tabs or {}) do
         for _, element in ipairs(tab.elements) do
             if element.Flag and decoded[element.Flag] == nil then
                 self.flags[element.Flag] = element:_GetPersistedValue()
+                self._pendingConfigFlags[element.Flag] = {fillOnly = true}
             end
         end
     end
