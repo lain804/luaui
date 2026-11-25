@@ -2115,7 +2115,8 @@ function UILibrary.new(args)
             end
         end
     end
-    self:SetConfigFile(args.ConfigFile or args.ConfigName or (args.GuiName or "UILibrary") .. ".json")
+    assert(self:SetConfigFile(args.ConfigFile or args.ConfigName or (args.GuiName or "UILibrary") .. ".json"),
+        "Invalid config file path; the .bak suffix is reserved")
 
     if args.AutoLoad ~= false then
         self:LoadConfig(false)
@@ -2445,6 +2446,31 @@ function UILibrary:_CancelInteractions()
     self:_HideTooltip()
 end
 
+local function normalizeConfigPath(path)
+    path = path:gsub("\\", "/")
+    local last = path:match("([^/]+)$")
+    if not last or last == "." or last == ".." or last:lower():match("%.bak[. ]*$") then return nil end
+
+    local root = path:match("^//[^/]+/[^/]+/") or path:match("^%a:/")
+        or path:match("^/") or path:match("^%a:") or ""
+    local absolute = root:sub(-1) == "/"
+    -- shortcut: lexical paths only, use host file identity if aliases such as symlinks are supported.
+    local parts = {}
+    for part in path:sub(#root + 1):gmatch("[^/]+") do
+        if part == ".." then
+            if #parts > 0 and parts[#parts] ~= ".." then
+                table.remove(parts)
+            elseif not absolute then
+                table.insert(parts, part)
+            end
+        elseif part ~= "." then
+            table.insert(parts, part)
+        end
+    end
+    if #parts == 0 then return nil end
+    return root .. table.concat(parts, "/")
+end
+
 -- Separately loaded copies of the library can write the same executor file.
 local function configFileState(path)
     local environment = getgenv and getgenv() or shared
@@ -2453,7 +2479,6 @@ local function configFileState(path)
         files = setmetatable({}, {__mode = "v"})
         environment.__luauiConfigFiles = files
     end
-    path = path:gsub("\\", "/"):gsub("/+", "/"):gsub("^%./", "")
     if not files[path] then files[path] = {} end
     return files[path]
 end
@@ -2480,7 +2505,8 @@ end
 function UILibrary:SetConfigFile(fileName)
     assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
     if self.Destroyed or self._destroying or self._configBusy then return false end
-    local path = self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName
+    local path = normalizeConfigPath(self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName)
+    if not path then return false end
     local file = configFileState(path)
     if not self._autoSaveBlocked then
         if (self._saveTask or self.AutoSave and self._configDirty) and not self:_SaveConfig(true) then return false end

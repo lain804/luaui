@@ -118,7 +118,10 @@ runTimers()
 assert(http:JSONDecode(files.invalid).Speed == 48)
 
 local first = newLibrary("shared")
-local second = newLibrary("shared", loadLibrary())
+local second = newLibrary("profiles//.././shared", loadLibrary())
+assert(first.ConfigPath == second.ConfigPath)
+assert(not second:SetConfigFile("./shared.BAK"))
+assert(second.ConfigPath == "shared")
 first:SetFlag("Audio", true)
 second:SetFlag("Volume", 2)
 local writefile = env.writefile
