@@ -1,35 +1,4 @@
-local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService")
-local TweenService = game:GetService("TweenService")
-
-local UILibrary = {}
-UILibrary.__index = UILibrary
-
-local Theme = {
-    Background = Color3.fromRGB(15, 15, 15),
-    Tab = Color3.fromRGB(25, 25, 25),
-    TabActive = Color3.fromRGB(35, 35, 35),
-    Element = Color3.fromRGB(20, 20, 20),
-    ElementHover = Color3.fromRGB(32, 32, 32),
-    ElementPressed = Color3.fromRGB(46, 46, 46),
-    BorderHover = Color3.fromRGB(76, 76, 76),
-    Text = Color3.fromRGB(216, 216, 216),
-    TextDim = Color3.fromRGB(145, 145, 145),
-    Accent = Color3.fromRGB(255, 255, 255),
-    Border = Color3.fromRGB(45, 45, 45),
-    Track = Color3.fromRGB(10, 10, 10),
-    Warning = Color3.fromRGB(245, 194, 121)
-}
-
-local DEFAULT_MAX_SIZE = Vector2.new(10000, 10000)
-local ROW_INSET = 12
-local TITLE_HEIGHT = 34
-local TAB_HEIGHT = UserInputService.TouchEnabled and 48 or 38
-local INPUT_ROW_HEIGHT = UserInputService.TouchEnabled and 52 or 30
-local FEEDBACK_TWEEN = TweenInfo.new(0.09)
-
-local function finiteNumber(value, fallback)
+local __DARKLUA_BUNDLE_MODULES={cache={}::any}do do local function __modImpl()local function finiteNumber(value, fallback)
     local number = tonumber(value)
     if not number or number ~= number or math.abs(number) == math.huge then
         return fallback
@@ -50,6 +19,127 @@ local function disconnectAll(connections)
     for _, connection in ipairs(connections) do connection:Disconnect() end
     table.clear(connections)
 end
+
+local function getEnvFunction(name)
+    local environment = (getgenv and getgenv()) or getfenv()
+    local fn = environment[name] or rawget(_G, name)
+    return type(fn) == "function" and fn or nil
+end
+
+local function safeCall(fn, ...)
+    if typeof(fn) ~= "function" then return false, nil end
+    local ok, result = pcall(fn, ...)
+    return ok, result
+end
+
+return {
+    finiteNumber = finiteNumber,
+    normalizeRange = normalizeRange,
+    disconnectAll = disconnectAll,
+    getEnvFunction = getEnvFunction,
+    safeCall = safeCall,
+}
+end function __DARKLUA_BUNDLE_MODULES.a():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.a if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.a=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
+
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local finiteNumber = Util.finiteNumber
+
+local Theme = {
+    Background = Color3.fromRGB(15, 15, 15),
+    Tab = Color3.fromRGB(25, 25, 25),
+    TabActive = Color3.fromRGB(35, 35, 35),
+    Element = Color3.fromRGB(20, 20, 20),
+    ElementHover = Color3.fromRGB(32, 32, 32),
+    ElementPressed = Color3.fromRGB(46, 46, 46),
+    BorderHover = Color3.fromRGB(76, 76, 76),
+    Text = Color3.fromRGB(216, 216, 216),
+    TextDim = Color3.fromRGB(145, 145, 145),
+    Accent = Color3.fromRGB(255, 255, 255),
+    Border = Color3.fromRGB(45, 45, 45),
+    Track = Color3.fromRGB(10, 10, 10),
+    Warning = Color3.fromRGB(245, 194, 121)
+}
+
+local ROW_INSET = 12
+local TITLE_HEIGHT = 34
+local TAB_HEIGHT = UserInputService.TouchEnabled and 48 or 38
+local INPUT_ROW_HEIGHT = UserInputService.TouchEnabled and 52 or 30
+
+local function createRow(tab, className, name, height, minimumHeight)
+    assert(not tab.Destroyed and not tab.library.Destroyed and not tab.library._destroying, "Cannot add controls to a destroyed UI")
+    local row = Instance.new(className)
+    row.Name = name
+    row.Parent = tab.content
+    row.BackgroundColor3 = Theme.Element
+    row.BorderColor3 = Theme.Border
+    row.BorderSizePixel = 1
+    row.Size = UDim2.new(1, 0, 0, math.max(minimumHeight, UserInputService.TouchEnabled and 44 or 0, finiteNumber(height, minimumHeight)))
+    row.AnchorPoint = Vector2.new(0.5, 0)
+    row.Position = UDim2.new(0.5, 0, 0, 0)
+    return row
+end
+
+local function createLabel(parent, text, textSize)
+    local label = Instance.new("TextLabel")
+    label.Parent = parent
+    label.BackgroundTransparency = 1
+    label.BorderSizePixel = 0
+    label.Font = Enum.Font.Code
+    label.Text = text
+    label.TextColor3 = Theme.Text
+    label.TextSize = textSize or 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    return label
+end
+
+local function createInputSurface(parent, className)
+    local surface = Instance.new(className)
+    surface.Parent = parent
+    surface.BackgroundColor3 = Theme.Background
+    surface.BorderColor3 = Theme.Border
+    surface.BorderSizePixel = 1
+    surface.AnchorPoint = Vector2.new(1, 0)
+    surface.Position = UDim2.new(1, -8, 0, 4)
+    surface.Size = UDim2.new(0.58, -8, 1, -8)
+    return surface
+end
+
+local function createTrack(parent, color)
+    local track = Instance.new("Frame")
+    track.Parent = parent
+    track.BackgroundColor3 = Theme.Track
+    track.BorderSizePixel = 0
+    track.Position = UDim2.new(0, 10, 1, -17)
+    track.Size = UDim2.new(1, -20, 0, 6)
+
+    local fill = Instance.new("Frame")
+    fill.Parent = track
+    fill.BackgroundColor3 = color
+    fill.BorderSizePixel = 0
+    return track, fill
+end
+
+return {
+    Theme = Theme,
+    ROW_INSET = ROW_INSET,
+    TITLE_HEIGHT = TITLE_HEIGHT,
+    TAB_HEIGHT = TAB_HEIGHT,
+    INPUT_ROW_HEIGHT = INPUT_ROW_HEIGHT,
+    createRow = createRow,
+    createLabel = createLabel,
+    createInputSurface = createInputSurface,
+    createTrack = createTrack,
+}
+end function __DARKLUA_BUNDLE_MODULES.b():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.b if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.b=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+local TweenService = game:GetService("TweenService")
+
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+
+local FEEDBACK_TWEEN = TweenInfo.new(0.09)
 
 local function isPointerPress(input)
     return input.UserInputType == Enum.UserInputType.MouseButton1
@@ -109,73 +199,6 @@ local function bindButtonFeedback(button, idleColor)
     end
 end
 
-local function getEnvFunction(name)
-    local environment = (getgenv and getgenv()) or getfenv()
-    local fn = environment[name] or rawget(_G, name)
-    return type(fn) == "function" and fn or nil
-end
-
-local function safeCall(fn, ...)
-    if typeof(fn) ~= "function" then return false, nil end
-    local ok, result = pcall(fn, ...)
-    return ok, result
-end
-
-local function copyFlagValue(value, seen)
-    if type(value) ~= "table" then return value end
-    seen = seen or {}
-    if seen[value] then return seen[value] end
-    local result = {}
-    seen[value] = result
-    for key, item in pairs(value) do result[key] = copyFlagValue(item, seen) end
-    return result
-end
-
-local function sameFlagValue(left, right, seen)
-    if left == right then return true end
-    if type(left) ~= "table" or type(right) ~= "table" then return false end
-    seen = seen or {}
-    if seen[left] == right then return true end
-    seen[left] = right
-    for key, value in pairs(left) do
-        if not sameFlagValue(value, right[key], seen) then return false end
-    end
-    for key in pairs(right) do
-        if left[key] == nil then return false end
-    end
-    return true
-end
-
-local function normalizeVectorSize(value, fallback)
-    fallback = fallback or Vector2.new(0, 0)
-
-    if typeof(value) == "Vector2" then
-        return Vector2.new(finiteNumber(value.X, fallback.X), finiteNumber(value.Y, fallback.Y))
-    end
-
-    if typeof(value) == "UDim2" then
-        return Vector2.new(value.X.Offset, value.Y.Offset)
-    end
-
-    if type(value) == "table" then
-        local x = value.X or value.x or value.Width or value.width or value[1]
-        local y = value.Y or value.y or value.Height or value.height or value[2]
-        return Vector2.new(finiteNumber(x, fallback.X), finiteNumber(y, fallback.Y))
-    end
-
-    return fallback
-end
-
-local function clampVectorSize(size, minSize, maxSize)
-    minSize = minSize or Vector2.new(0, 0)
-    maxSize = maxSize or DEFAULT_MAX_SIZE
-
-    return Vector2.new(
-        math.clamp(size.X, math.max(1, minSize.X), math.max(1, minSize.X, maxSize.X)),
-        math.clamp(size.Y, math.max(1, minSize.Y), math.max(1, minSize.Y, maxSize.Y))
-    )
-end
-
 local function isVisible(library, object)
     if library.Destroyed or library._destroying or not library.ScreenGui.Enabled then return false end
     while object and object ~= library.ScreenGui do
@@ -232,8 +255,737 @@ local function stepFocus(targets, direction, focused, controlCanvas)
     return target
 end
 
--- User code runs after the control has finished updating. It may remove controls,
+return {
+    isPointerPress = isPointerPress,
+    bindButtonFeedback = bindButtonFeedback,
+    isVisible = isVisible,
+    bindActivation = bindActivation,
+    focusDirection = focusDirection,
+    revealSelection = revealSelection,
+    stepFocus = stepFocus,
+}
+end function __DARKLUA_BUNDLE_MODULES.c():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.c if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.c=v end return v.c end end do local function __modImpl()
+local HttpService = game:GetService("HttpService")
+
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local getEnvFunction = Util.getEnvFunction
+local safeCall = Util.safeCall
+local disconnectAll = Util.disconnectAll
+
+local Config = {}
+
+local function copyFlagValue(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, item in pairs(value) do result[key] = copyFlagValue(item, seen) end
+    return result
+end
+
+local function sameFlagValue(left, right, seen)
+    if left == right then return true end
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    seen = seen or {}
+    if seen[left] == right then return true end
+    seen[left] = right
+    for key, value in pairs(left) do
+        if not sameFlagValue(value, right[key], seen) then return false end
+    end
+    for key in pairs(right) do
+        if left[key] == nil then return false end
+    end
+    return true
+end
+
+function Config:_SetSaveStatus(status)
+    self.SaveStatus = status
+    if self.SaveIndicator and not self.Destroyed then
+        self.SaveIndicator.Text = status == "Failed" and "Save failed"
+            or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered"
+            or status == "FileCheckUnavailable" and "No file check" or ""
+        self.SaveIndicator.Visible = self.SaveIndicator.Text ~= ""
+        self.TitleBar.Title.Size = UDim2.new(1, self.SaveIndicator.Visible and -106 or -20, 1, 0)
+    end
+end
+
+function Config:GetFlag(flag)
+    return copyFlagValue(self.flags[flag])
+end
+
+function Config:SetFlag(flag, value, noCallback)
+    if self.Destroyed then return end
+    local element = self.elementsByFlag[flag]
+    if element then
+        element:SetValue(value, noCallback)
+    else
+        self:_StoreFlag(flag, value)
+    end
+end
+
+function Config:_StoreFlag(flag, value, fillOnly)
+    if self.Destroyed then return end
+    local changed = not sameFlagValue(self.flags[flag], value)
+    if changed then
+        self.flags[flag] = copyFlagValue(value)
+    end
+    if not self._loading and (changed or not fillOnly) then
+        local pending = self._pendingConfigFlags[flag]
+        self._pendingConfigFlags[flag] = {fillOnly = fillOnly and (not pending or pending.fillOnly)}
+        self._configDirty = true
+        self._configVersion = (self._configVersion or 0) + 1
+    end
+    if self._configDirty then self:_QueueSave() end
+end
+
+function Config:_QueueSave()
+    if not self.AutoSave or self._autoSaveBlocked or self._loading or self.Destroyed or self._destroying then return end
+    if self._configBusy then return end
+    if not getEnvFunction("writefile") then return end
+    if self._saveTask then return end
+    self._saveTask = task.delay(0.25, function()
+        self._saveTask = nil
+        if not self.Destroyed then self:_SaveConfig(true) end
+    end)
+end
+
+local function normalizeConfigPath(path)
+    path = path:gsub("\\", "/")
+    local last = path:match("([^/]+)$")
+    if not last or last == "." or last == ".." or last:lower():match("%.bak[. ]*$") then return nil end
+
+    local root = path:match("^//[^/]+/[^/]+/") or path:match("^%a:/")
+        or path:match("^/") or path:match("^%a:") or ""
+    local absolute = root:sub(-1) == "/"
+    -- shortcut: lexical paths only, use host file identity if aliases such as symlinks are supported.
+    local parts = {}
+    for part in path:sub(#root + 1):gmatch("[^/]+") do
+        if part == ".." then
+            if #parts > 0 and parts[#parts] ~= ".." then
+                table.remove(parts)
+            elseif not absolute then
+                table.insert(parts, part)
+            end
+        elseif part ~= "." then
+            table.insert(parts, part)
+        end
+    end
+    if #parts == 0 then return nil end
+    return root .. table.concat(parts, "/")
+end
+
+-- Separately loaded copies of the library can write the same executor file.
+local function configFileState(path)
+    local environment = getgenv and getgenv() or shared
+    local files = environment.__luauiConfigFiles
+    if not files then
+        files = setmetatable({}, {__mode = "v"})
+        environment.__luauiConfigFiles = files
+    end
+    if not files[path] then files[path] = {} end
+    return files[path]
+end
+
+local function lockConfigFile(file)
+    while file.busy do task.wait() end
+    file.busy = true
+end
+
+local function runConfigOperation(operation)
+    -- If the caller is cancelled while waiting, the worker still releases the file lock.
+    local result
+    task.spawn(function() result = table.pack(pcall(operation)) end)
+    while not result do task.wait() end
+    if not result[1] then error(result[2], 0) end
+    return result[2]
+end
+
+local function readConfig(path)
+    local checked, exists = safeCall(getEnvFunction("isfile"), path)
+    if checked and exists == false then return nil, nil, "missing" end
+    local read, data = safeCall(getEnvFunction("readfile"), path)
+    if not read or type(data) ~= "string" then
+        return nil, nil, checked and exists == true and "unreadable" or "unchecked"
+    end
+    local ok, decoded = pcall(HttpService.JSONDecode, HttpService, data)
+    if ok and type(decoded) == "table" then return decoded, data end
+    return nil, nil, "invalid"
+end
+
+-- A pending save belongs to the old file. Finish it before changing destinations.
+function Config:SetConfigFile(fileName)
+    assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
+    if self.Destroyed or self._destroying or self._configBusy then return false end
+    local path = normalizeConfigPath(self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName)
+    if not path then return false end
+    local file = configFileState(path)
+    local previousFile = self._configFileState
+    if not self._autoSaveBlocked then
+        if (self._saveTask or self.AutoSave and self._configDirty) and not self:_SaveConfig(true) then return false end
+        if self._configDirty and self.AutoSave then return false end
+    elseif self._configFileState ~= file then
+        self._autoSaveBlocked = nil
+        self:_SetSaveStatus("Ready")
+    end
+    if self.Destroyed or self._destroying or self._configBusy or self._configFileState ~= previousFile then return false end
+    self.ConfigFile = fileName
+    self.ConfigPath = path
+    if self._configFileState ~= file then
+        self._configFileState = file
+        self._pendingConfigFlags = {}
+        for flag in pairs(self.flags) do self._pendingConfigFlags[flag] = {fillOnly = true} end
+    end
+    return true
+end
+
+function Config:SaveConfig()
+    return self:_SaveConfig(false)
+end
+
+function Config:_SaveConfig(automatic)
+    return runConfigOperation(function() return self:_WriteConfig(automatic) end)
+end
+
+function Config:_WriteConfig(automatic)
+    if self.Destroyed and not self._flushOnDestroy then return false end
+    if self._configBusy then
+        if self._configBusy == "save" then self._saveAgain = true end
+        return false
+    end
+    self._configDirty = true
+    if self._saveTask then
+        task.cancel(self._saveTask)
+        self._saveTask = nil
+    end
+    local writefile = getEnvFunction("writefile")
+    if not writefile then
+        self:_SetSaveStatus("Failed")
+        warn("Config: getgenv().writefile was not found")
+        return false
+    end
+
+    self._configBusy = "save"
+    local path = self.ConfigPath
+    local file = self._configFileState
+    lockConfigFile(file)
+    local success, failure
+    local failureStatus = "Failed"
+    repeat
+        success, failure = pcall(function()
+            -- Read under the write lock so unopened files and external edits are preserved.
+            local flags, bytes, primaryError = readConfig(path)
+            local backupError
+            if not flags and (primaryError == "missing" or primaryError == "invalid") then
+                local recovered, _, reason = readConfig(path .. ".bak")
+                flags, backupError = recovered, reason
+            end
+            local missing = primaryError == "missing" and backupError == "missing"
+            local unreadable = primaryError == "unreadable" or backupError == "unreadable"
+            local unchecked = primaryError == "unchecked" or backupError == "unchecked"
+            if unchecked or unreadable or automatic and not flags and not missing then
+                self._autoSaveBlocked = true
+                failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
+                if unchecked then error("cannot confirm missing config without a working isfile: " .. path) end
+                error("cannot safely save config to " .. path)
+            end
+            local snapshot = copyFlagValue(self.flags)
+            local pending = table.clone(self._pendingConfigFlags)
+            local merged = flags or snapshot
+            local needsWrite = bytes == nil
+            if flags then
+                for flag, change in pairs(pending) do
+                    if (not change.fillOnly or merged[flag] == nil) and not sameFlagValue(merged[flag], snapshot[flag]) then
+                        merged[flag] = snapshot[flag]
+                        needsWrite = true
+                    end
+                end
+            end
+            if needsWrite then
+                local encoded = HttpService:JSONEncode(merged)
+                if bytes then
+                    local backedUp, result = safeCall(writefile, path .. ".bak", bytes)
+                    assert(backedUp and result ~= false, "failed to write backup config")
+                end
+                local wrote, result = safeCall(writefile, path, encoded)
+                assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
+            end
+            -- Setters can replace these entries while the filesystem yields.
+            for flag, change in pairs(pending) do
+                if self._pendingConfigFlags[flag] == change then self._pendingConfigFlags[flag] = nil end
+            end
+        end)
+        self._configDirty = not success or next(self._pendingConfigFlags) ~= nil
+        -- A write already in flight may outlive Destroy. Flush the final edits
+        -- without recreating a timer or touching the destroyed GUI.
+    until not (success and (self.Destroyed or self._destroying) and self.AutoSave and self._configDirty)
+    file.busy = nil
+    self._configBusy = nil
+    self._flushOnDestroy = nil
+    local saveAgain = self._saveAgain
+    self._saveAgain = nil
+    if not success then
+        self:_SetSaveStatus(failureStatus)
+        warn("Config: " .. tostring(failure))
+        return false
+    end
+    self._autoSaveBlocked = nil
+    self:_SetSaveStatus("Ready")
+    if not self.Destroyed and self._configDirty then
+        if saveAgain and not self.AutoSave then
+            self._saveTask = task.defer(function()
+                self._saveTask = nil
+                if not self.Destroyed then self:SaveConfig() end
+            end)
+        else
+            self:_QueueSave()
+        end
+    end
+    return true
+end
+
+function Config:LoadConfig(applyCallbacks)
+    return runConfigOperation(function() return self:_ReadConfig(applyCallbacks) end)
+end
+
+function Config:_ReadConfig(applyCallbacks)
+    if self.Destroyed or self._destroying or self._configBusy then return false end
+    if not getEnvFunction("readfile") and not getEnvFunction("writefile") then
+        return false
+    end
+
+    self._configBusy = "load"
+    local version = self._configVersion or 0
+    local file = self._configFileState
+    lockConfigFile(file)
+    local decoded, _, primaryError = readConfig(self.ConfigPath)
+    local recovered = false
+    local backupError
+    if not decoded then
+        decoded, _, backupError = readConfig(self.ConfigPath .. ".bak")
+        recovered = decoded ~= nil
+    end
+    file.busy = nil
+    -- Only a confirmed missing file is safe to initialize automatically.
+    local unchecked = primaryError == "unchecked" or not decoded and backupError == "unchecked"
+    self._autoSaveBlocked = unchecked or primaryError == "unreadable"
+        or not decoded and (primaryError ~= "missing" or backupError ~= "missing")
+    local failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
+    if self._autoSaveBlocked then
+        self:_SetSaveStatus(failureStatus)
+        if unchecked then warn("Config: cannot confirm missing config without a working isfile: " .. self.ConfigPath) end
+        if self._saveTask then task.cancel(self._saveTask); self._saveTask = nil end
+    end
+    if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
+        self._configBusy = nil
+        if self.Destroyed and self._flushOnDestroy and not self._autoSaveBlocked then
+            self:_WriteConfig(true)
+        elseif self._configDirty then
+            self:_QueueSave()
+        end
+        return false
+    end
+    self:_SetSaveStatus(self._autoSaveBlocked and failureStatus or recovered and "Recovered" or "Ready")
+
+    if self._saveTask then
+        task.cancel(self._saveTask)
+        self._saveTask = nil
+    end
+    self._configDirty = false
+    self._pendingConfigFlags = {}
+    self.flags = copyFlagValue(decoded)
+    self.loadedFlags = copyFlagValue(decoded)
+    for _, tab in ipairs(self.tabs or {}) do
+        for _, element in ipairs(tab.elements) do
+            if element.Flag and decoded[element.Flag] == nil then
+                self.flags[element.Flag] = element:_GetPersistedValue()
+                self._pendingConfigFlags[element.Flag] = {fillOnly = true}
+            end
+        end
+    end
+
+    -- Apply without disk writes. Setters normalize persisted values for each control.
+    self._loading = true
+    local okApply, applyError = pcall(function()
+        for _, tab in ipairs(self.tabs or {}) do
+            for _, element in ipairs(tab.elements) do
+                if element.Flag and decoded[element.Flag] ~= nil then
+                    element:SetValue(decoded[element.Flag], applyCallbacks ~= true)
+                end
+            end
+        end
+    end)
+    self._loading = false
+    self._configBusy = nil
+    if not okApply then
+        warn("Config: failed to apply config: " .. tostring(applyError))
+        return false
+    end
+
+    return true
+end
+
+local function finishDestroy(self)
+    self.Destroyed = true
+    disconnectAll(self._connections)
+    for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
+    if self.ScreenGui and not self._screenDestroying then self.ScreenGui:Destroy() end
+end
+
+function Config:Destroy()
+    if self.Destroyed or self._destroying then return end
+    self._destroying = true
+    self:_CancelInteractions()
+    if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
+        if self._configBusy == "load" then
+            self._flushOnDestroy = true
+        elseif not self._configBusy then
+            return runConfigOperation(function()
+                self:_WriteConfig(true)
+                finishDestroy(self)
+            end)
+        end
+    end
+    finishDestroy(self)
+end
+
+return Config
+end function __DARKLUA_BUNDLE_MODULES.d():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.d if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.d=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local createLabel = Style.createLabel
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local isVisible = Input.isVisible
+local revealSelection = Input.revealSelection
+local stepFocus = Input.stepFocus
+
+local Focus = {}
+
+function Focus:_FocusStep(direction, focused, controlsOnly)
+    local targets = {}
+    if not controlsOnly then
+        for _, tab in ipairs(self.tabs) do
+            if tab.button.Selectable and isVisible(self, tab.button) then
+                table.insert(targets, tab.button)
+            end
+        end
+    end
+    local controlCanvas
+    for _, tab in ipairs(self.tabs) do
+        if tab.name == self.currentTab then
+            if controlsOnly then controlCanvas = tab.content end
+            for _, element in ipairs(tab.elements) do
+                if not element.Hidden then
+                    local objects = element.Instance:GetDescendants()
+                    table.insert(objects, 1, element.Instance)
+                    for _, object in ipairs(objects) do
+                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false
+                            and isVisible(self, object) then
+                            table.insert(targets, object)
+                        end
+                    end
+                end
+            end
+            break
+        end
+    end
+    return stepFocus(targets, direction, focused, controlCanvas)
+end
+
+function Focus:_StepTab(direction)
+    for index, tab in ipairs(self.tabs) do
+        if tab.name == self.currentTab then
+            local nextTab = self.tabs[(index - 1 + direction) % #self.tabs + 1]
+            if self:SwitchTab(nextTab.name) then
+                revealSelection(self.TabContainer, nextTab.button, "X")
+                GuiService.SelectedObject = nextTab.button
+                return true
+            end
+        end
+    end
+end
+
+function Focus:_HideTooltip()
+    self._tooltipGeneration = (self._tooltipGeneration or 0) + 1
+    if self.Tooltip then self.Tooltip.Visible = false end
+    self._tooltipOwner = nil
+end
+
+function Focus:_ReleaseElementFocus(element)
+    local selected = GuiService.SelectedObject
+    if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
+        GuiService.SelectedObject = nil
+    end
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
+    self:_HideTooltip()
+end
+
+function Focus:_DecorateObject(object)
+    local isTextBox = object:IsA("TextBox")
+    if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or isTextBox) then
+        object.Selectable = true
+        local outline = Instance.new("UIStroke")
+        outline.Name = "FocusOutline"
+        outline.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        outline.Color = Theme.Accent
+        outline.Thickness = 1
+        outline.Enabled = false
+        outline.Parent = object
+        local function renderFocus()
+            outline.Enabled = GuiService.SelectedObject == object or isTextBox and object:IsFocused()
+        end
+        object.SelectionGained:Connect(renderFocus)
+        object.SelectionLost:Connect(renderFocus)
+        if isTextBox then
+            object.Focused:Connect(function()
+                if isVisible(self, object) then GuiService.SelectedObject = object end
+                renderFocus()
+            end)
+            object.FocusLost:Connect(function(submitted)
+                if submitted and not self._closeDropdown and not GuiService.SelectedObject and isVisible(self, object) then
+                    GuiService.SelectedObject = object
+                end
+                renderFocus()
+            end)
+        end
+    end
+    if not (object:IsA("TextLabel") or object:IsA("TextButton")) then return end
+    local pending
+    local function hide()
+        if pending then task.cancel(pending); pending = nil end
+        if self._tooltipOwner == object then
+            self._tooltipOwner = nil
+            if self.Tooltip then self.Tooltip.Visible = false end
+        end
+    end
+    object.MouseEnter:Connect(function()
+        hide()
+        local generation = self._tooltipGeneration or 0
+        pending = task.delay(0.45, function()
+            pending = nil
+            if generation ~= (self._tooltipGeneration or 0) or not isVisible(self, object) then return end
+            if not object.TextFits then
+                if not self.Tooltip then
+                    self.Tooltip = createLabel(self.MainFrame, "", 12)
+                    self.Tooltip.BackgroundTransparency = 0
+                    self.Tooltip.BackgroundColor3 = Theme.TabActive
+                    self.Tooltip.BorderColor3 = Theme.BorderHover
+                    self.Tooltip.BorderSizePixel = 1
+                    self.Tooltip.TextWrapped = true
+                    self.Tooltip.ZIndex = 80
+                    local padding = Instance.new("UIPadding")
+                    padding.PaddingLeft = UDim.new(0, 8)
+                    padding.PaddingRight = UDim.new(0, 8)
+                    padding.Parent = self.Tooltip
+                end
+                local width = math.max(1, self.MainFrame.AbsoluteSize.X - 24)
+                self.Tooltip.Text = object.Text
+                self.Tooltip.Size = UDim2.new(0, width, 0, 54)
+                local y = object.AbsolutePosition.Y - self.MainFrame.AbsolutePosition.Y + object.AbsoluteSize.Y + 4
+                self.Tooltip.Position = UDim2.new(0, 12, 0, math.clamp(y, 4, math.max(4, self.MainFrame.AbsoluteSize.Y - 58)))
+                self.Tooltip.Visible = true
+                self._tooltipOwner = object
+            end
+        end)
+    end)
+    object.MouseLeave:Connect(hide)
+    object.Destroying:Connect(hide)
+end
+
+function Focus:_CancelInteractions()
+    for _, tab in ipairs(self.tabs or {}) do
+        if tab.name == self.currentTab then
+            for _, element in ipairs(tab.elements) do
+                if element._onHide then element._onHide() end
+                self:_ReleaseElementFocus(element)
+            end
+            break
+        end
+    end
+    self:_HideTooltip()
+end
+
+return Focus
+end function __DARKLUA_BUNDLE_MODULES.e():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.e if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.e=v end return v.c end end do local function __modImpl()
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local finiteNumber = Util.finiteNumber
+local getEnvFunction = Util.getEnvFunction
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+
+local Background = {}
+
+-- accepts a number id, an "rbxasset[id]://..." string, an http url, a plain
+-- numeric string, or a local file name. file names (anything that doesn't already
+-- contain "rbxasset") are resolved through the executor's getcustomasset, e.g.
+-- "penar.png" -> getcustomasset("penar.png").
+local function normalizeImage(image)
+    if type(image) == "number" then
+        if not finiteNumber(image, nil) or image <= 0 or image % 1 ~= 0 then return "" end
+        return "rbxassetid://" .. string.format("%.0f", image)
+    end
+
+    if type(image) ~= "string" then
+        return ""
+    end
+    image = image:match("^%s*(.-)%s*$")
+    if image == "" then return "" end
+
+    -- already a roblox content string ("rbxasset://" / "rbxassetid://") -> use directly
+    if image:match("^rbxasset://") or image:match("^rbxassetid://")
+        or image:match("^rbxthumb://") or image:match("^rbxgameasset://") then
+        return image
+    end
+
+    -- bare asset id -> rbxassetid://
+    local digits = image:match("^%s*(%d+)%s*$")
+    if digits then
+        return "rbxassetid://" .. digits
+    end
+
+    -- remote url -> use directly
+    if string.find(image, "^https?://") then
+        return image
+    end
+
+    -- otherwise treat it as a local file name and resolve it with getcustomasset
+    local getCustomAsset = getEnvFunction("getcustomasset") or getEnvFunction("getsynasset")
+    if getCustomAsset then
+        local ok, asset = pcall(getCustomAsset, image)
+        if ok and type(asset) == "string" and asset ~= "" then
+            return asset
+        end
+    end
+
+    return image
+end
+
+-- make a single instance's background translucent (remembering its original value
+-- in an attribute) when `on`, or restore the saved original when off. only touches
+-- objects that started out with a visible (non-transparent) background.
+local BG_ATTR = "__uiOrigBgTransparency"
+local function tagBackgroundTransparency(obj, on, transparency)
+    if on then
+        if obj:GetAttribute(BG_ATTR) == nil then
+            if obj.BackgroundTransparency >= 1 then
+                return -- already see-through (labels, scrolling frames), leave alone
+            end
+            obj:SetAttribute(BG_ATTR, obj.BackgroundTransparency)
+        end
+        obj.BackgroundTransparency = transparency
+    else
+        local original = obj:GetAttribute(BG_ATTR)
+        if original ~= nil then
+            obj.BackgroundTransparency = original
+            obj:SetAttribute(BG_ATTR, nil)
+        end
+    end
+end
+
+-- walk the chrome (title bar, tabs, controls, ...) and make every opaque
+-- background translucent so the image shows through them too. the background
+-- image and the content area are skipped (the content area is handled on its own
+-- so the body stays fully clear). pass `root` to only process a subtree.
+function Background:_applyChromeTransparency(on, root)
+    root = root or self.MainFrame
+    if not root then return end
+
+    local transparency = self.ElementTransparency or 0.3
+
+    local objects = root:GetDescendants()
+    table.insert(objects, root)
+    if root == self.MainFrame then
+        for _, tab in ipairs(self.tabs or {}) do
+            for _, element in ipairs(tab.elements) do
+                if element.Hidden then table.insert(objects, element.Instance) end
+            end
+        end
+    end
+
+    for _, obj in ipairs(objects) do
+        if obj ~= self.BackgroundImage
+            and obj ~= self.MainFrame
+            and obj ~= self.ContentArea
+            and obj:IsA("GuiObject")
+            and obj:GetAttribute("__uiChrome") == true
+        then
+            tagBackgroundTransparency(obj, on, transparency)
+        end
+    end
+end
+
+function Background:SetElementTransparency(transparency)
+    if self.Destroyed then return end
+    self.ElementTransparency = math.clamp(finiteNumber(transparency, 0.3), 0, 1)
+    if self.BackgroundEnabled then
+        self:_applyChromeTransparency(true)
+    end
+end
+
+-- show/hide the background while keeping the last image and transparency.
+function Background:SetBackgroundEnabled(enabled)
+    if self.Destroyed or not self.BackgroundImage then return end
+    self._backgroundVersion = (self._backgroundVersion or 0) + 1
+
+    local on = not not enabled and self.BackgroundImage.Image ~= ""
+    self.BackgroundEnabled = on
+    self.BackgroundImage.Visible = on
+
+    -- the content area is normally opaque, which would hide the image. make it
+    -- transparent while the background is on so the image shows through behind
+    -- the controls, then restore it when off.
+    if self.ContentArea then
+        self.ContentArea.BackgroundTransparency = on and 1 or 0
+        self.ContentArea.BackgroundColor3 = Theme.Background
+    end
+
+    -- the title bar, tab bar and every control are opaque too; make them
+    -- translucent so the image is visible through them as well.
+    self:_applyChromeTransparency(on)
+end
+
+-- pass nil/false as the image to clear the background.
+function Background:SetBackground(image, transparency)
+    if self.Destroyed or not self.BackgroundImage then return end
+    self._backgroundVersion = (self._backgroundVersion or 0) + 1
+    local version = self._backgroundVersion
+
+    if image == nil or image == false then
+        self.BackgroundImage.Image = ""
+        self:SetBackgroundEnabled(false)
+        return
+    end
+
+    -- getcustomasset may yield. A newer image or enable/disable request wins.
+    local transparencyVersion = self._transparencyVersion
+    local normalized = normalizeImage(image)
+    if self.Destroyed or version ~= self._backgroundVersion then return end
+    if transparency ~= nil and transparencyVersion == self._transparencyVersion then
+        self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
+    end
+
+    self.BackgroundImage.Image = normalized
+    self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
+    self:SetBackgroundEnabled(true)
+end
+
+function Background:SetBackgroundTransparency(transparency)
+    if self.Destroyed then return end
+    self._transparencyVersion = (self._transparencyVersion or 0) + 1
+    self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
+    if self.BackgroundImage then
+        self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
+    end
+end
+
+return Background
+end function __DARKLUA_BUNDLE_MODULES.f():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.f if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.f=v end return v.c end end do local function __modImpl()-- User code runs after the control has finished updating. It may remove controls,
 -- switch tabs, or load another config without mutating an in-progress traversal.
+
 local function dispatchCallback(tab, instance, callback, ...)
     if type(callback) ~= "function" then return end
     local arguments = table.pack(...)
@@ -242,60 +994,6 @@ local function dispatchCallback(tab, instance, callback, ...)
             or instance:GetAttribute("__uiRemoved") then return end
         callback(table.unpack(arguments, 1, arguments.n))
     end)
-end
-
-local function createRow(tab, className, name, height, minimumHeight)
-    assert(not tab.Destroyed and not tab.library.Destroyed and not tab.library._destroying, "Cannot add controls to a destroyed UI")
-    local row = Instance.new(className)
-    row.Name = name
-    row.Parent = tab.content
-    row.BackgroundColor3 = Theme.Element
-    row.BorderColor3 = Theme.Border
-    row.BorderSizePixel = 1
-    row.Size = UDim2.new(1, 0, 0, math.max(minimumHeight, UserInputService.TouchEnabled and 44 or 0, finiteNumber(height, minimumHeight)))
-    row.AnchorPoint = Vector2.new(0.5, 0)
-    row.Position = UDim2.new(0.5, 0, 0, 0)
-    return row
-end
-
-local function createLabel(parent, text, textSize)
-    local label = Instance.new("TextLabel")
-    label.Parent = parent
-    label.BackgroundTransparency = 1
-    label.BorderSizePixel = 0
-    label.Font = Enum.Font.Code
-    label.Text = text
-    label.TextColor3 = Theme.Text
-    label.TextSize = textSize or 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    return label
-end
-
-local function createInputSurface(parent, className)
-    local surface = Instance.new(className)
-    surface.Parent = parent
-    surface.BackgroundColor3 = Theme.Background
-    surface.BorderColor3 = Theme.Border
-    surface.BorderSizePixel = 1
-    surface.AnchorPoint = Vector2.new(1, 0)
-    surface.Position = UDim2.new(1, -8, 0, 4)
-    surface.Size = UDim2.new(0.58, -8, 1, -8)
-    return surface
-end
-
-local function createTrack(parent, color)
-    local track = Instance.new("Frame")
-    track.Parent = parent
-    track.BackgroundColor3 = Theme.Track
-    track.BorderSizePixel = 0
-    track.Position = UDim2.new(0, 10, 1, -17)
-    track.Size = UDim2.new(1, -20, 0, 6)
-
-    local fill = Instance.new("Frame")
-    fill.Parent = track
-    fill.BackgroundColor3 = color
-    fill.BorderSizePixel = 0
-    return track, fill
 end
 
 local Element = {}
@@ -443,86 +1141,23 @@ function Element:GetOptions()
     return nil
 end
 
-local Tab = {}
-Tab.__index = Tab
+Element.dispatchCallback = dispatchCallback
 
-function Tab:_NextLayoutOrder()
-    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
-    self._layoutOrder = (self._layoutOrder or 0) + 1
-    return self._layoutOrder
-end
+return Element
+end function __DARKLUA_BUNDLE_MODULES.g():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.g if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.g=v end return v.c end end do local function __modImpl()
+local Element = __DARKLUA_BUNDLE_MODULES.g()
+local dispatchCallback = Element.dispatchCallback
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local createRow = Style.createRow
+local createLabel = Style.createLabel
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local bindActivation = Input.bindActivation
+local bindButtonFeedback = Input.bindButtonFeedback
 
-function Tab:_RefreshCanvas()
-    if self.Destroyed or self._canvasPending or not self.content or not self.layout then return end
-    self._canvasPending = true
-    task.defer(function()
-        self._canvasPending = false
-        if not self.Destroyed and self.content.Parent and self.layout.Parent then
-            self.content.CanvasSize = UDim2.new(0, 0, 0, self.layout.AbsoluteContentSize.Y + 20)
-        end
-    end)
-end
+local Basic = {}
 
-function Tab:_FindElement(instance)
-    for _, element in ipairs(self.elements) do
-        if element.Instance == instance then return element end
-    end
-end
-
-function Tab:Remove(target)
-    target = self:_FindElement(target) or target
-    if typeof(target) == "Instance" then
-        target:Destroy()
-        self:_RefreshCanvas()
-        return
-    end
-    if type(target) == "table" and target.Remove then
-        target:Remove()
-    end
-end
-
-function Tab:Hide(target)
-    target = self:_FindElement(target) or target
-    if typeof(target) == "Instance" then
-        target.Parent = nil
-        self:_RefreshCanvas()
-        return
-    end
-    if type(target) == "table" and target.Hide then
-        target:Hide()
-    end
-end
-
-function Tab:Show(target)
-    target = self:_FindElement(target) or target
-    if type(target) == "table" and target.Show then
-        target:Show()
-    end
-end
-
-function Tab:_BindFlag(flag, element)
-    if flag then
-        assert(not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
-        self.library.elementsByFlag[flag] = element
-        self.library:_StoreFlag(flag, element:_GetPersistedValue(), true)
-    end
-end
-
-function Tab:_GetSaved(flag, default)
-    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
-    assert(not flag or not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
-    if flag and self.library.flags[flag] ~= nil then
-        return self.library.flags[flag], true
-    end
-    return default, false
-end
-
-function Tab:_SaveFlag(flag, value)
-    if not flag then return end
-    self.library:_StoreFlag(flag, value)
-end
-
-function Tab:Button(args)
+function Basic:Button(args)
     args = args or {}
     local text = args.Text or "Button"
     local callback = args.Callback
@@ -553,7 +1188,7 @@ function Tab:Button(args)
     return element
 end
 
-function Tab:Toggle(args)
+function Basic:Toggle(args)
     args = args or {}
     local text = args.Text or "Toggle"
     local callback = args.Callback
@@ -625,7 +1260,87 @@ function Tab:Toggle(args)
     return element
 end
 
-function Tab:Slider(args)
+function Basic:Label(args)
+    args = args or {}
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
+    local text = args.Text or ""
+    local height = args.Height or 20
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Parent = self.content
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, height)
+    label.AnchorPoint = Vector2.new(0.5, 0)
+    label.Position = UDim2.new(0.5, 0, 0, 0)
+    label.Font = Enum.Font.Code
+    label.Text = text
+    label.TextColor3 = Theme.TextDim
+    label.TextSize = args.TextSize or 12
+    label.TextXAlignment = args.TextXAlignment or Enum.TextXAlignment.Left
+
+    local element = Element.new(self, label, {
+        Type = "Label",
+        SetValue = function(newText)
+            label.Text = tostring(newText or "")
+        end,
+        GetValue = function()
+            return label.Text
+        end
+    })
+
+    return element
+end
+
+function Basic:Separator(args)
+    args = args or {}
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
+    local container = Instance.new("Frame")
+    container.Name = "SeparatorContainer"
+    container.Parent = self.content
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(1, 0, 0, args.Height or 20)
+    container.AnchorPoint = Vector2.new(0.5, 0)
+    container.Position = UDim2.new(0.5, 0, 0, 0)
+
+    local separator = Instance.new("Frame")
+    separator.Name = "Separator"
+    separator.Parent = container
+    separator.BackgroundColor3 = Theme.Border
+    separator.BorderSizePixel = 0
+    separator.Position = UDim2.new(0, 0, 0.5, 0)
+    separator.Size = UDim2.new(1, 0, 0, 1)
+    separator.AnchorPoint = Vector2.new(0, 0.5)
+
+    local element = Element.new(self, container, {
+        Type = "Separator"
+    })
+
+    return element
+end
+
+return Basic
+end function __DARKLUA_BUNDLE_MODULES.h():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.h if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.h=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
+
+local Element = __DARKLUA_BUNDLE_MODULES.g()
+local dispatchCallback = Element.dispatchCallback
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local createRow = Style.createRow
+local createLabel = Style.createLabel
+local createTrack = Style.createTrack
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local isPointerPress = Input.isPointerPress
+local isVisible = Input.isVisible
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local finiteNumber = Util.finiteNumber
+local normalizeRange = Util.normalizeRange
+local disconnectAll = Util.disconnectAll
+
+local Range = {}
+
+function Range:Slider(args)
     args = args or {}
     local text = args.Text or "Slider"
     local min, max = normalizeRange(args.Min, args.Max)
@@ -828,7 +1543,7 @@ function Tab:Slider(args)
     return element
 end
 
-function Tab:Meter(args)
+function Range:Meter(args)
     args = args or {}
     local text = args.Text or "Meter"
     local min, max = normalizeRange(args.Min, args.Max)
@@ -885,67 +1600,32 @@ function Tab:Meter(args)
     return element
 end
 
-function Tab:Label(args)
-    args = args or {}
-    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
-    local text = args.Text or ""
-    local height = args.Height or 20
+return Range
+end function __DARKLUA_BUNDLE_MODULES.i():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.i if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.i=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
-    local label = Instance.new("TextLabel")
-    label.Name = "Label"
-    label.Parent = self.content
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.new(1, 0, 0, height)
-    label.AnchorPoint = Vector2.new(0.5, 0)
-    label.Position = UDim2.new(0.5, 0, 0, 0)
-    label.Font = Enum.Font.Code
-    label.Text = text
-    label.TextColor3 = Theme.TextDim
-    label.TextSize = args.TextSize or 12
-    label.TextXAlignment = args.TextXAlignment or Enum.TextXAlignment.Left
-
-    local element = Element.new(self, label, {
-        Type = "Label",
-        SetValue = function(newText)
-            label.Text = tostring(newText or "")
-        end,
-        GetValue = function()
-            return label.Text
-        end
-    })
-
-    return element
-end
-
-function Tab:Separator(args)
-    args = args or {}
-    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
-    local container = Instance.new("Frame")
-    container.Name = "SeparatorContainer"
-    container.Parent = self.content
-    container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, args.Height or 20)
-    container.AnchorPoint = Vector2.new(0.5, 0)
-    container.Position = UDim2.new(0.5, 0, 0, 0)
-
-    local separator = Instance.new("Frame")
-    separator.Name = "Separator"
-    separator.Parent = container
-    separator.BackgroundColor3 = Theme.Border
-    separator.BorderSizePixel = 0
-    separator.Position = UDim2.new(0, 0, 0.5, 0)
-    separator.Size = UDim2.new(1, 0, 0, 1)
-    separator.AnchorPoint = Vector2.new(0, 0.5)
-
-    local element = Element.new(self, container, {
-        Type = "Separator"
-    })
-
-    return element
-end
+local Element = __DARKLUA_BUNDLE_MODULES.g()
+local dispatchCallback = Element.dispatchCallback
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local INPUT_ROW_HEIGHT = Style.INPUT_ROW_HEIGHT
+local createRow = Style.createRow
+local createLabel = Style.createLabel
+local createInputSurface = Style.createInputSurface
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local bindButtonFeedback = Input.bindButtonFeedback
+local bindActivation = Input.bindActivation
+local isVisible = Input.isVisible
+local isPointerPress = Input.isPointerPress
+local focusDirection = Input.focusDirection
+local stepFocus = Input.stepFocus
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local finiteNumber = Util.finiteNumber
+local disconnectAll = Util.disconnectAll
 
 -- Options is an array of strings, finite numbers, or booleans.
-function Tab:Dropdown(args)
+return function(self, args)
     args = args or {}
     local text = args.Text or "Dropdown"
     local function normalizeOptions(values)
@@ -1550,8 +2230,22 @@ function Tab:Dropdown(args)
 
     return element
 end
+end function __DARKLUA_BUNDLE_MODULES.j():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.j if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.j=v end return v.c end end do local function __modImpl()
+local UserInputService = game:GetService("UserInputService")
 
-function Tab:Keybind(args)
+local Element = __DARKLUA_BUNDLE_MODULES.g()
+local dispatchCallback = Element.dispatchCallback
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local INPUT_ROW_HEIGHT = Style.INPUT_ROW_HEIGHT
+local createRow = Style.createRow
+local createLabel = Style.createLabel
+local createInputSurface = Style.createInputSurface
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local bindButtonFeedback = Input.bindButtonFeedback
+local bindActivation = Input.bindActivation
+
+return function(self, args)
     args = args or {}
     local text = args.Text or "Keybind"
     local callback = args.Callback
@@ -1698,148 +2392,426 @@ function Tab:Keybind(args)
 
     return element
 end
+end function __DARKLUA_BUNDLE_MODULES.k():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.k if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.k=v end return v.c end end do local function __modImpl()
+local Element = __DARKLUA_BUNDLE_MODULES.g()
+local dispatchCallback = Element.dispatchCallback
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local INPUT_ROW_HEIGHT = Style.INPUT_ROW_HEIGHT
+local createRow = Style.createRow
+local createLabel = Style.createLabel
+local createInputSurface = Style.createInputSurface
 
-function UILibrary:_SetSaveStatus(status)
-    self.SaveStatus = status
-    if self.SaveIndicator and not self.Destroyed then
-        self.SaveIndicator.Text = status == "Failed" and "Save failed"
-            or status == "LoadFailed" and "Load failed" or status == "Recovered" and "Recovered"
-            or status == "FileCheckUnavailable" and "No file check" or ""
-        self.SaveIndicator.Visible = self.SaveIndicator.Text ~= ""
-        self.TitleBar.Title.Size = UDim2.new(1, self.SaveIndicator.Visible and -106 or -20, 1, 0)
+return function(self, args)
+    args = args or {}
+    local labelText = args.Text or "TextBox"
+    local callback = args.Callback
+    local flag = args.Flag or args.Save
+
+    local default = args.Default or ""
+    default = self:_GetSaved(flag, default)
+    default = tostring(default)
+
+    local frame = createRow(self, "Frame", "Textbox", args.Height, INPUT_ROW_HEIGHT)
+
+    local label = createLabel(frame, labelText, args.TextSize)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.Size = UDim2.new(0.42, -18, 1, 0)
+
+    local boxFrame = createInputSurface(frame, "Frame")
+    boxFrame.Name = "TextboxInput"
+
+    local box = Instance.new("TextBox")
+    box.Parent = boxFrame
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel = 0
+    box.Position = UDim2.new(0, 6, 0, 0)
+    box.Size = UDim2.new(1, -12, 1, 0)
+    box.PlaceholderColor3 = Theme.TextDim
+    box.Font = Enum.Font.Code
+    box.Text = default
+    box.PlaceholderText = tostring(args.Placeholder or "")
+    box.TextColor3 = Theme.Text
+    box.TextSize = args.TextSize or 13
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.ClearTextOnFocus = false
+
+    local hovering = false
+    local function renderFocus()
+        frame.BackgroundColor3 = (hovering or box:IsFocused()) and Theme.ElementHover or Theme.Element
+        boxFrame.BorderColor3 = box:IsFocused() and Theme.Accent or hovering and Theme.BorderHover or Theme.Border
+    end
+    box.Focused:Connect(renderFocus)
+
+    local skipFocusLost = 0
+    local committedText = box.Text
+    local function commitText(enterPressed)
+        local newText = box.Text or ""
+        committedText = newText
+        self:_SaveFlag(flag, newText)
+        dispatchCallback(self, frame, callback, newText, enterPressed)
+    end
+    local function releaseEditing()
+        hovering = false
+        if box.Text ~= committedText then commitText(false) end
+        if box:IsFocused() then
+            skipFocusLost = skipFocusLost + 1
+            box:ReleaseFocus()
+        end
+        renderFocus()
+    end
+    box.FocusLost:Connect(function(enterPressed)
+        renderFocus()
+        if skipFocusLost > 0 then
+            skipFocusLost = skipFocusLost - 1
+        elseif box.Text ~= committedText or enterPressed then
+            commitText(enterPressed)
+        end
+    end)
+
+    frame.MouseEnter:Connect(function()
+        hovering = true
+        renderFocus()
+    end)
+
+    frame.MouseLeave:Connect(function()
+        hovering = false
+        renderFocus()
+    end)
+
+    local element = Element.new(self, frame, {
+        Type = "Textbox",
+        Flag = flag,
+        OnHide = releaseEditing,
+        GetValue = function() return box.Text end,
+        SetValue = function(val, noCallback)
+            box.Text = val == nil and "" or tostring(val)
+            committedText = box.Text
+            self:_SaveFlag(flag, box.Text)
+            if callback and not noCallback then
+                dispatchCallback(self, frame, callback, box.Text, false)
+            end
+        end
+    })
+    self:_BindFlag(flag, element)
+
+    if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
+        dispatchCallback(self, frame, callback, box.Text, false)
+    end
+
+    return element
+end
+end function __DARKLUA_BUNDLE_MODULES.l():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.l if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.l=v end return v.c end end do local function __modImpl()
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local ROW_INSET = Style.ROW_INSET
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local isVisible = Input.isVisible
+local bindButtonFeedback = Input.bindButtonFeedback
+local bindActivation = Input.bindActivation
+local revealSelection = Input.revealSelection
+
+local Basic = __DARKLUA_BUNDLE_MODULES.h()
+local Range = __DARKLUA_BUNDLE_MODULES.i()
+
+local Tab = {}
+Tab.__index = Tab
+
+function Tab:_NextLayoutOrder()
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
+    self._layoutOrder = (self._layoutOrder or 0) + 1
+    return self._layoutOrder
+end
+
+function Tab:_RefreshCanvas()
+    if self.Destroyed or self._canvasPending or not self.content or not self.layout then return end
+    self._canvasPending = true
+    task.defer(function()
+        self._canvasPending = false
+        if not self.Destroyed and self.content.Parent and self.layout.Parent then
+            self.content.CanvasSize = UDim2.new(0, 0, 0, self.layout.AbsoluteContentSize.Y + 20)
+        end
+    end)
+end
+
+function Tab:_FindElement(instance)
+    for _, element in ipairs(self.elements) do
+        if element.Instance == instance then return element end
     end
 end
 
-function UILibrary:_FocusStep(direction, focused, controlsOnly)
-    local targets = {}
-    if not controlsOnly then
-        for _, tab in ipairs(self.tabs) do
-            if tab.button.Selectable and isVisible(self, tab.button) then
-                table.insert(targets, tab.button)
-            end
-        end
+function Tab:Remove(target)
+    target = self:_FindElement(target) or target
+    if typeof(target) == "Instance" then
+        target:Destroy()
+        self:_RefreshCanvas()
+        return
     end
-    local controlCanvas
-    for _, tab in ipairs(self.tabs) do
-        if tab.name == self.currentTab then
-            if controlsOnly then controlCanvas = tab.content end
-            for _, element in ipairs(tab.elements) do
-                if not element.Hidden then
-                    local objects = element.Instance:GetDescendants()
-                    table.insert(objects, 1, element.Instance)
-                    for _, object in ipairs(objects) do
-                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false
-                            and isVisible(self, object) then
-                            table.insert(targets, object)
-                        end
-                    end
-                end
-            end
+    if type(target) == "table" and target.Remove then
+        target:Remove()
+    end
+end
+
+function Tab:Hide(target)
+    target = self:_FindElement(target) or target
+    if typeof(target) == "Instance" then
+        target.Parent = nil
+        self:_RefreshCanvas()
+        return
+    end
+    if type(target) == "table" and target.Hide then
+        target:Hide()
+    end
+end
+
+function Tab:Show(target)
+    target = self:_FindElement(target) or target
+    if type(target) == "table" and target.Show then
+        target:Show()
+    end
+end
+
+function Tab:_BindFlag(flag, element)
+    if flag then
+        assert(not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
+        self.library.elementsByFlag[flag] = element
+        self.library:_StoreFlag(flag, element:_GetPersistedValue(), true)
+    end
+end
+
+function Tab:_GetSaved(flag, default)
+    assert(not self.Destroyed and not self.library.Destroyed and not self.library._destroying, "Cannot add controls to a destroyed UI")
+    assert(not flag or not self.library.elementsByFlag[flag], "Duplicate flag: " .. tostring(flag))
+    if flag and self.library.flags[flag] ~= nil then
+        return self.library.flags[flag], true
+    end
+    return default, false
+end
+
+function Tab:_SaveFlag(flag, value)
+    if not flag then return end
+    self.library:_StoreFlag(flag, value)
+end
+
+for _, controls in ipairs({Basic, Range}) do
+    for name, constructor in pairs(controls) do Tab[name] = constructor end
+end
+Tab.Dropdown = __DARKLUA_BUNDLE_MODULES.j()
+Tab.Keybind = __DARKLUA_BUNDLE_MODULES.k()
+Tab.Textbox = __DARKLUA_BUNDLE_MODULES.l()
+
+function Tab:RemoveTab()
+    if self.Destroyed then return end
+    self.Destroyed = true
+    for index = #self.elements, 1, -1 do self.elements[index]:Remove() end
+    if not self._buttonDestroying then self.button:Destroy() end
+    if not self._contentDestroying then self.content:Destroy() end
+    for i, item in ipairs(self.library.tabs) do
+        if item == self then
+            table.remove(self.library.tabs, i)
             break
         end
     end
-    return stepFocus(targets, direction, focused, controlCanvas)
-end
-
-function UILibrary:_StepTab(direction)
-    for index, tab in ipairs(self.tabs) do
-        if tab.name == self.currentTab then
-            local nextTab = self.tabs[(index - 1 + direction) % #self.tabs + 1]
-            if self:SwitchTab(nextTab.name) then
-                revealSelection(self.TabContainer, nextTab.button, "X")
-                GuiService.SelectedObject = nextTab.button
-                return true
-            end
+    if self.library.currentTab == self.name then
+        local first = self.library.tabs[1]
+        if first then
+            self.library:SwitchTab(first.name)
+        else
+            self.library.currentTab = nil
         end
     end
 end
 
-function UILibrary:_HideTooltip()
-    self._tooltipGeneration = (self._tooltipGeneration or 0) + 1
-    if self.Tooltip then self.Tooltip.Visible = false end
-    self._tooltipOwner = nil
-end
-
-function UILibrary:_ReleaseElementFocus(element)
-    local selected = GuiService.SelectedObject
-    if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
-        GuiService.SelectedObject = nil
-    end
-    local focused = UserInputService:GetFocusedTextBox()
-    if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
-    self:_HideTooltip()
-end
-
-function UILibrary:_DecorateObject(object)
-    local isTextBox = object:IsA("TextBox")
-    if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or isTextBox) then
-        object.Selectable = true
-        local outline = Instance.new("UIStroke")
-        outline.Name = "FocusOutline"
-        outline.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-        outline.Color = Theme.Accent
-        outline.Thickness = 1
-        outline.Enabled = false
-        outline.Parent = object
-        local function renderFocus()
-            outline.Enabled = GuiService.SelectedObject == object or isTextBox and object:IsFocused()
-        end
-        object.SelectionGained:Connect(renderFocus)
-        object.SelectionLost:Connect(renderFocus)
-        if isTextBox then
-            object.Focused:Connect(function()
-                if isVisible(self, object) then GuiService.SelectedObject = object end
-                renderFocus()
-            end)
-            object.FocusLost:Connect(function(submitted)
-                if submitted and not self._closeDropdown and not GuiService.SelectedObject and isVisible(self, object) then
-                    GuiService.SelectedObject = object
-                end
-                renderFocus()
-            end)
-        end
-    end
-    if not (object:IsA("TextLabel") or object:IsA("TextButton")) then return end
-    local pending
-    local function hide()
-        if pending then task.cancel(pending); pending = nil end
-        if self._tooltipOwner == object then
-            self._tooltipOwner = nil
-            if self.Tooltip then self.Tooltip.Visible = false end
-        end
-    end
-    object.MouseEnter:Connect(function()
-        hide()
-        local generation = self._tooltipGeneration or 0
-        pending = task.delay(0.45, function()
-            pending = nil
-            if generation ~= (self._tooltipGeneration or 0) or not isVisible(self, object) then return end
-            if not object.TextFits then
-                if not self.Tooltip then
-                    self.Tooltip = createLabel(self.MainFrame, "", 12)
-                    self.Tooltip.BackgroundTransparency = 0
-                    self.Tooltip.BackgroundColor3 = Theme.TabActive
-                    self.Tooltip.BorderColor3 = Theme.BorderHover
-                    self.Tooltip.BorderSizePixel = 1
-                    self.Tooltip.TextWrapped = true
-                    self.Tooltip.ZIndex = 80
-                    local padding = Instance.new("UIPadding")
-                    padding.PaddingLeft = UDim.new(0, 8)
-                    padding.PaddingRight = UDim.new(0, 8)
-                    padding.Parent = self.Tooltip
-                end
-                local width = math.max(1, self.MainFrame.AbsoluteSize.X - 24)
-                self.Tooltip.Text = object.Text
-                self.Tooltip.Size = UDim2.new(0, width, 0, 54)
-                local y = object.AbsolutePosition.Y - self.MainFrame.AbsolutePosition.Y + object.AbsoluteSize.Y + 4
-                self.Tooltip.Position = UDim2.new(0, 12, 0, math.clamp(y, 4, math.max(4, self.MainFrame.AbsoluteSize.Y - 58)))
-                self.Tooltip.Visible = true
-                self._tooltipOwner = object
-            end
-        end)
+function Tab:_RevealButton()
+    task.defer(function()
+        local button = self.button
+        if self.Destroyed or not isVisible(self.library, button) then return end
+        revealSelection(self.library.TabContainer, button, "X")
     end)
-    object.MouseLeave:Connect(hide)
-    object.Destroying:Connect(hide)
+end
+
+local Tabs = {}
+
+function Tabs:CreateTab(args)
+    args = args or {}
+    assert(not self.Destroyed and not self._destroying, "Cannot create a tab on a destroyed library")
+    local name = args.Name or "Tab"
+    for _, existing in ipairs(self.tabs) do
+        assert(existing.name ~= name, "Duplicate tab: " .. tostring(name))
+    end
+
+    local tab = setmetatable({
+        library = self,
+        name = name,
+        elements = {},
+        _layoutOrder = 0
+    }, Tab)
+
+    tab.button = Instance.new("TextButton")
+    tab.button.Name = name
+    tab.button:SetAttribute("__uiChrome", true)
+    tab.button.Parent = self.TabContainer
+    tab.button.BackgroundColor3 = Theme.Tab
+    tab.button.BorderColor3 = Theme.Border
+    tab.button.BorderSizePixel = 0
+    tab.button.Size = UDim2.new(0, args.Width or 120, 1, -self.TabScrollBarThickness)
+    tab.button.Font = Enum.Font.Code
+    tab.button.Text = name
+    tab.button.TextColor3 = Theme.TextDim
+    tab.button.TextSize = args.TextSize or 13
+    tab.button.AutoButtonColor = false
+    tab.button.TextTruncate = Enum.TextTruncate.AtEnd
+    self:_DecorateObject(tab.button)
+    tab._resetFeedback, tab._setActiveFeedback = bindButtonFeedback(tab.button, Theme.Tab)
+    tab.button.SelectionGained:Connect(function() tab:_RevealButton() end)
+    self._tabOrder = (self._tabOrder or 0) + 1
+    tab.button.LayoutOrder = self._tabOrder
+    tab.button.ZIndex = 3
+    tab.indicator = Instance.new("Frame")
+    tab.indicator.Name = "ActiveIndicator"
+    tab.indicator.Parent = tab.button
+    tab.indicator.BackgroundColor3 = Theme.Accent
+    tab.indicator.BorderSizePixel = 0
+    tab.indicator.Position = UDim2.new(0, ROW_INSET, 1, -2)
+    tab.indicator.Size = UDim2.new(1, -2 * ROW_INSET, 0, 2)
+    tab.indicator.Visible = false
+
+    tab.content = Instance.new("ScrollingFrame")
+    tab.content.Name = name .. "Content"
+    tab.content.Parent = self.ContentArea
+    tab.content.BackgroundTransparency = 1
+    tab.content.BorderSizePixel = 0
+    tab.content.Size = UDim2.new(1, 0, 1, 0)
+    tab.content.ScrollingDirection = Enum.ScrollingDirection.Y
+    tab.content.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+    tab.content.ScrollBarThickness = 4
+    tab.content.ScrollBarImageColor3 = Theme.BorderHover
+    tab.content.CanvasSize = UDim2.new(0, 0, 0, 0)
+    tab.content.Visible = false
+    tab.content.ClipsDescendants = true
+    tab.content.ZIndex = 1
+    tab.button.Destroying:Connect(function()
+        tab._buttonDestroying = true
+        tab:RemoveTab()
+    end)
+    tab.content.Destroying:Connect(function()
+        tab._contentDestroying = true
+        tab:RemoveTab()
+    end)
+
+    local layout = Instance.new("UIListLayout")
+    layout.Parent = tab.content
+    layout.Padding = UDim.new(0, 6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tab.layout = layout
+
+    local padding = Instance.new("UIPadding")
+    padding.Parent = tab.content
+    padding.PaddingLeft = UDim.new(0, ROW_INSET)
+    padding.PaddingRight = UDim.new(0, ROW_INSET)
+    padding.PaddingTop = UDim.new(0, 10)
+    padding.PaddingBottom = UDim.new(0, 10)
+
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        tab:_RefreshCanvas()
+    end)
+
+    bindActivation(self, tab.button, function()
+        self:SwitchTab(name)
+    end)
+
+    table.insert(self.tabs, tab)
+    if self.BackgroundEnabled then self:_applyChromeTransparency(true, tab.button) end
+
+    if #self.tabs == 1 then
+        self:SwitchTab(name)
+    end
+
+    return tab
+end
+
+function Tabs:SwitchTab(name)
+    if self.Destroyed or self._destroying then return false end
+    local nextTab
+    for _, tab in ipairs(self.tabs) do
+        if tab.name == name then nextTab = tab; break end
+    end
+    if not nextTab then return false end
+    if self.currentTab == name then return true end
+    self:_CancelInteractions()
+    self.currentTab = name
+    for _, tab in ipairs(self.tabs) do
+        local active = tab == nextTab
+        tab.indicator.Visible = active
+        tab.content.Visible = active
+        tab.button.TextColor3 = active and Theme.Accent or Theme.TextDim
+        tab._setActiveFeedback(active)
+    end
+    nextTab:_RevealButton()
+    return true
+end
+
+return Tabs
+end function __DARKLUA_BUNDLE_MODULES.m():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.m if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.m=v end return v.c end end end-- Edit the source modules here, then rebuild the root main.lua with Darklua.
+
+
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
+
+local Style = __DARKLUA_BUNDLE_MODULES.b()
+local Theme = Style.Theme
+local ROW_INSET = Style.ROW_INSET
+local TITLE_HEIGHT = Style.TITLE_HEIGHT
+local TAB_HEIGHT = Style.TAB_HEIGHT
+local createLabel = Style.createLabel
+local Input = __DARKLUA_BUNDLE_MODULES.c()
+local bindButtonFeedback = Input.bindButtonFeedback
+local isPointerPress = Input.isPointerPress
+local isVisible = Input.isVisible
+local focusDirection = Input.focusDirection
+local Util = __DARKLUA_BUNDLE_MODULES.a()
+local finiteNumber = Util.finiteNumber
+local getEnvFunction = Util.getEnvFunction
+local safeCall = Util.safeCall
+
+local UILibrary = {}
+UILibrary.__index = UILibrary
+
+for _, methods in ipairs({__DARKLUA_BUNDLE_MODULES.d(), __DARKLUA_BUNDLE_MODULES.e(), __DARKLUA_BUNDLE_MODULES.f(), __DARKLUA_BUNDLE_MODULES.m()}) do
+    for name, method in pairs(methods) do UILibrary[name] = method end
+end
+
+local DEFAULT_MAX_SIZE = Vector2.new(10000, 10000)
+
+local function normalizeVectorSize(value, fallback)
+    fallback = fallback or Vector2.new(0, 0)
+
+    if typeof(value) == "Vector2" then
+        return Vector2.new(finiteNumber(value.X, fallback.X), finiteNumber(value.Y, fallback.Y))
+    end
+
+    if typeof(value) == "UDim2" then
+        return Vector2.new(value.X.Offset, value.Y.Offset)
+    end
+
+    if type(value) == "table" then
+        local x = value.X or value.x or value.Width or value.width or value[1]
+        local y = value.Y or value.y or value.Height or value.height or value[2]
+        return Vector2.new(finiteNumber(x, fallback.X), finiteNumber(y, fallback.Y))
+    end
+
+    return fallback
+end
+
+local function clampVectorSize(size, minSize, maxSize)
+    minSize = minSize or Vector2.new(0, 0)
+    maxSize = maxSize or DEFAULT_MAX_SIZE
+
+    return Vector2.new(
+        math.clamp(size.X, math.max(1, minSize.X), math.max(1, minSize.X, maxSize.X)),
+        math.clamp(size.Y, math.max(1, minSize.Y), math.max(1, minSize.Y, maxSize.Y))
+    )
 end
 
 function UILibrary:_ViewportBounds()
@@ -1915,169 +2887,6 @@ function UILibrary:SetResizable(enabled)
     if not self.ResizeEnabled and self._stopGestures then self._stopGestures() end
     if self.ResizeHandle then
         self.ResizeHandle.Visible = self.ResizeEnabled
-    end
-end
-
--- accepts a number id, an "rbxasset[id]://..." string, an http url, a plain
--- numeric string, or a local file name. file names (anything that doesn't already
--- contain "rbxasset") are resolved through the executor's getcustomasset, e.g.
--- "penar.png" -> getcustomasset("penar.png").
-local function normalizeImage(image)
-    if type(image) == "number" then
-        if not finiteNumber(image, nil) or image <= 0 or image % 1 ~= 0 then return "" end
-        return "rbxassetid://" .. string.format("%.0f", image)
-    end
-
-    if type(image) ~= "string" then
-        return ""
-    end
-    image = image:match("^%s*(.-)%s*$")
-    if image == "" then return "" end
-
-    -- already a roblox content string ("rbxasset://" / "rbxassetid://") -> use directly
-    if image:match("^rbxasset://") or image:match("^rbxassetid://")
-        or image:match("^rbxthumb://") or image:match("^rbxgameasset://") then
-        return image
-    end
-
-    -- bare asset id -> rbxassetid://
-    local digits = image:match("^%s*(%d+)%s*$")
-    if digits then
-        return "rbxassetid://" .. digits
-    end
-
-    -- remote url -> use directly
-    if string.find(image, "^https?://") then
-        return image
-    end
-
-    -- otherwise treat it as a local file name and resolve it with getcustomasset
-    local getCustomAsset = getEnvFunction("getcustomasset") or getEnvFunction("getsynasset")
-    if getCustomAsset then
-        local ok, asset = pcall(getCustomAsset, image)
-        if ok and type(asset) == "string" and asset ~= "" then
-            return asset
-        end
-    end
-
-    return image
-end
-
--- make a single instance's background translucent (remembering its original value
--- in an attribute) when `on`, or restore the saved original when off. only touches
--- objects that started out with a visible (non-transparent) background.
-local BG_ATTR = "__uiOrigBgTransparency"
-local function tagBackgroundTransparency(obj, on, transparency)
-    if on then
-        if obj:GetAttribute(BG_ATTR) == nil then
-            if obj.BackgroundTransparency >= 1 then
-                return -- already see-through (labels, scrolling frames), leave alone
-            end
-            obj:SetAttribute(BG_ATTR, obj.BackgroundTransparency)
-        end
-        obj.BackgroundTransparency = transparency
-    else
-        local original = obj:GetAttribute(BG_ATTR)
-        if original ~= nil then
-            obj.BackgroundTransparency = original
-            obj:SetAttribute(BG_ATTR, nil)
-        end
-    end
-end
-
--- walk the chrome (title bar, tabs, controls, ...) and make every opaque
--- background translucent so the image shows through them too. the background
--- image and the content area are skipped (the content area is handled on its own
--- so the body stays fully clear). pass `root` to only process a subtree.
-function UILibrary:_applyChromeTransparency(on, root)
-    root = root or self.MainFrame
-    if not root then return end
-
-    local transparency = self.ElementTransparency or 0.3
-
-    local objects = root:GetDescendants()
-    table.insert(objects, root)
-    if root == self.MainFrame then
-        for _, tab in ipairs(self.tabs or {}) do
-            for _, element in ipairs(tab.elements) do
-                if element.Hidden then table.insert(objects, element.Instance) end
-            end
-        end
-    end
-
-    for _, obj in ipairs(objects) do
-        if obj ~= self.BackgroundImage
-            and obj ~= self.MainFrame
-            and obj ~= self.ContentArea
-            and obj:IsA("GuiObject")
-            and obj:GetAttribute("__uiChrome") == true
-        then
-            tagBackgroundTransparency(obj, on, transparency)
-        end
-    end
-end
-
-function UILibrary:SetElementTransparency(transparency)
-    if self.Destroyed then return end
-    self.ElementTransparency = math.clamp(finiteNumber(transparency, 0.3), 0, 1)
-    if self.BackgroundEnabled then
-        self:_applyChromeTransparency(true)
-    end
-end
-
--- show/hide the background while keeping the last image and transparency.
-function UILibrary:SetBackgroundEnabled(enabled)
-    if self.Destroyed or not self.BackgroundImage then return end
-    self._backgroundVersion = (self._backgroundVersion or 0) + 1
-
-    local on = not not enabled and self.BackgroundImage.Image ~= ""
-    self.BackgroundEnabled = on
-    self.BackgroundImage.Visible = on
-
-    -- the content area is normally opaque, which would hide the image. make it
-    -- transparent while the background is on so the image shows through behind
-    -- the controls, then restore it when off.
-    if self.ContentArea then
-        self.ContentArea.BackgroundTransparency = on and 1 or 0
-        self.ContentArea.BackgroundColor3 = Theme.Background
-    end
-
-    -- the title bar, tab bar and every control are opaque too; make them
-    -- translucent so the image is visible through them as well.
-    self:_applyChromeTransparency(on)
-end
-
--- pass nil/false as the image to clear the background.
-function UILibrary:SetBackground(image, transparency)
-    if self.Destroyed or not self.BackgroundImage then return end
-    self._backgroundVersion = (self._backgroundVersion or 0) + 1
-    local version = self._backgroundVersion
-
-    if image == nil or image == false then
-        self.BackgroundImage.Image = ""
-        self:SetBackgroundEnabled(false)
-        return
-    end
-
-    -- getcustomasset may yield. A newer image or enable/disable request wins.
-    local transparencyVersion = self._transparencyVersion
-    local normalized = normalizeImage(image)
-    if self.Destroyed or version ~= self._backgroundVersion then return end
-    if transparency ~= nil and transparencyVersion == self._transparencyVersion then
-        self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
-    end
-
-    self.BackgroundImage.Image = normalized
-    self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
-    self:SetBackgroundEnabled(true)
-end
-
-function UILibrary:SetBackgroundTransparency(transparency)
-    if self.Destroyed then return end
-    self._transparencyVersion = (self._transparencyVersion or 0) + 1
-    self.BackgroundTransparency = math.clamp(finiteNumber(transparency, 0.5), 0, 1)
-    if self.BackgroundImage then
-        self.BackgroundImage.ImageTransparency = self.BackgroundTransparency
     end
 end
 
@@ -2392,608 +3201,6 @@ function UILibrary.new(args)
     end
 
     return self
-end
-
-function UILibrary:GetFlag(flag)
-    return copyFlagValue(self.flags[flag])
-end
-
-function UILibrary:SetFlag(flag, value, noCallback)
-    if self.Destroyed then return end
-    local element = self.elementsByFlag[flag]
-    if element then
-        element:SetValue(value, noCallback)
-    else
-        self:_StoreFlag(flag, value)
-    end
-end
-
-function UILibrary:_StoreFlag(flag, value, fillOnly)
-    if self.Destroyed then return end
-    local changed = not sameFlagValue(self.flags[flag], value)
-    if changed then
-        self.flags[flag] = copyFlagValue(value)
-    end
-    if not self._loading and (changed or not fillOnly) then
-        local pending = self._pendingConfigFlags[flag]
-        self._pendingConfigFlags[flag] = {fillOnly = fillOnly and (not pending or pending.fillOnly)}
-        self._configDirty = true
-        self._configVersion = (self._configVersion or 0) + 1
-    end
-    if self._configDirty then self:_QueueSave() end
-end
-
-function UILibrary:_QueueSave()
-    if not self.AutoSave or self._autoSaveBlocked or self._loading or self.Destroyed or self._destroying then return end
-    if self._configBusy then return end
-    if not getEnvFunction("writefile") then return end
-    if self._saveTask then return end
-    self._saveTask = task.delay(0.25, function()
-        self._saveTask = nil
-        if not self.Destroyed then self:_SaveConfig(true) end
-    end)
-end
-
-function UILibrary:_CancelInteractions()
-    for _, tab in ipairs(self.tabs or {}) do
-        if tab.name == self.currentTab then
-            for _, element in ipairs(tab.elements) do
-                if element._onHide then element._onHide() end
-                self:_ReleaseElementFocus(element)
-            end
-            break
-        end
-    end
-    self:_HideTooltip()
-end
-
-local function normalizeConfigPath(path)
-    path = path:gsub("\\", "/")
-    local last = path:match("([^/]+)$")
-    if not last or last == "." or last == ".." or last:lower():match("%.bak[. ]*$") then return nil end
-
-    local root = path:match("^//[^/]+/[^/]+/") or path:match("^%a:/")
-        or path:match("^/") or path:match("^%a:") or ""
-    local absolute = root:sub(-1) == "/"
-    -- shortcut: lexical paths only, use host file identity if aliases such as symlinks are supported.
-    local parts = {}
-    for part in path:sub(#root + 1):gmatch("[^/]+") do
-        if part == ".." then
-            if #parts > 0 and parts[#parts] ~= ".." then
-                table.remove(parts)
-            elseif not absolute then
-                table.insert(parts, part)
-            end
-        elseif part ~= "." then
-            table.insert(parts, part)
-        end
-    end
-    if #parts == 0 then return nil end
-    return root .. table.concat(parts, "/")
-end
-
--- Separately loaded copies of the library can write the same executor file.
-local function configFileState(path)
-    local environment = getgenv and getgenv() or shared
-    local files = environment.__luauiConfigFiles
-    if not files then
-        files = setmetatable({}, {__mode = "v"})
-        environment.__luauiConfigFiles = files
-    end
-    if not files[path] then files[path] = {} end
-    return files[path]
-end
-
-local function lockConfigFile(file)
-    while file.busy do task.wait() end
-    file.busy = true
-end
-
-local function runConfigOperation(operation)
-    -- If the caller is cancelled while waiting, the worker still releases the file lock.
-    local result
-    task.spawn(function() result = table.pack(pcall(operation)) end)
-    while not result do task.wait() end
-    if not result[1] then error(result[2], 0) end
-    return result[2]
-end
-
-local function readConfig(path)
-    local checked, exists = safeCall(getEnvFunction("isfile"), path)
-    if checked and exists == false then return nil, nil, "missing" end
-    local read, data = safeCall(getEnvFunction("readfile"), path)
-    if not read or type(data) ~= "string" then
-        return nil, nil, checked and exists == true and "unreadable" or "unchecked"
-    end
-    local ok, decoded = pcall(HttpService.JSONDecode, HttpService, data)
-    if ok and type(decoded) == "table" then return decoded, data end
-    return nil, nil, "invalid"
-end
-
--- A pending save belongs to the old file. Finish it before changing destinations.
-function UILibrary:SetConfigFile(fileName)
-    assert(type(fileName) == "string" and fileName:match("%S"), "SetConfigFile expects a non-empty filename")
-    if self.Destroyed or self._destroying or self._configBusy then return false end
-    local path = normalizeConfigPath(self.ConfigFolder and (self.ConfigFolder .. "/" .. fileName) or fileName)
-    if not path then return false end
-    local file = configFileState(path)
-    local previousFile = self._configFileState
-    if not self._autoSaveBlocked then
-        if (self._saveTask or self.AutoSave and self._configDirty) and not self:_SaveConfig(true) then return false end
-        if self._configDirty and self.AutoSave then return false end
-    elseif self._configFileState ~= file then
-        self._autoSaveBlocked = nil
-        self:_SetSaveStatus("Ready")
-    end
-    if self.Destroyed or self._destroying or self._configBusy or self._configFileState ~= previousFile then return false end
-    self.ConfigFile = fileName
-    self.ConfigPath = path
-    if self._configFileState ~= file then
-        self._configFileState = file
-        self._pendingConfigFlags = {}
-        for flag in pairs(self.flags) do self._pendingConfigFlags[flag] = {fillOnly = true} end
-    end
-    return true
-end
-
-function UILibrary:SaveConfig()
-    return self:_SaveConfig(false)
-end
-
-function UILibrary:_SaveConfig(automatic)
-    return runConfigOperation(function() return self:_WriteConfig(automatic) end)
-end
-
-function UILibrary:_WriteConfig(automatic)
-    if self.Destroyed and not self._flushOnDestroy then return false end
-    if self._configBusy then
-        if self._configBusy == "save" then self._saveAgain = true end
-        return false
-    end
-    self._configDirty = true
-    if self._saveTask then
-        task.cancel(self._saveTask)
-        self._saveTask = nil
-    end
-    local writefile = getEnvFunction("writefile")
-    if not writefile then
-        self:_SetSaveStatus("Failed")
-        warn("UILibrary: getgenv().writefile was not found")
-        return false
-    end
-
-    self._configBusy = "save"
-    local path = self.ConfigPath
-    local file = self._configFileState
-    lockConfigFile(file)
-    local success, failure
-    local failureStatus = "Failed"
-    repeat
-        success, failure = pcall(function()
-            -- Read under the write lock so unopened files and external edits are preserved.
-            local flags, bytes, primaryError = readConfig(path)
-            local backupError
-            if not flags and (primaryError == "missing" or primaryError == "invalid") then
-                local recovered, _, reason = readConfig(path .. ".bak")
-                flags, backupError = recovered, reason
-            end
-            local missing = primaryError == "missing" and backupError == "missing"
-            local unreadable = primaryError == "unreadable" or backupError == "unreadable"
-            local unchecked = primaryError == "unchecked" or backupError == "unchecked"
-            if unchecked or unreadable or automatic and not flags and not missing then
-                self._autoSaveBlocked = true
-                failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
-                if unchecked then error("cannot confirm missing config without a working isfile: " .. path) end
-                error("cannot safely save config to " .. path)
-            end
-            local snapshot = copyFlagValue(self.flags)
-            local pending = table.clone(self._pendingConfigFlags)
-            local merged = flags or snapshot
-            local needsWrite = bytes == nil
-            if flags then
-                for flag, change in pairs(pending) do
-                    if (not change.fillOnly or merged[flag] == nil) and not sameFlagValue(merged[flag], snapshot[flag]) then
-                        merged[flag] = snapshot[flag]
-                        needsWrite = true
-                    end
-                end
-            end
-            if needsWrite then
-                local encoded = HttpService:JSONEncode(merged)
-                if bytes then
-                    local backedUp, result = safeCall(writefile, path .. ".bak", bytes)
-                    assert(backedUp and result ~= false, "failed to write backup config")
-                end
-                local wrote, result = safeCall(writefile, path, encoded)
-                assert(wrote and result ~= false, "failed to write config to " .. tostring(path))
-            end
-            -- Setters can replace these entries while the filesystem yields.
-            for flag, change in pairs(pending) do
-                if self._pendingConfigFlags[flag] == change then self._pendingConfigFlags[flag] = nil end
-            end
-        end)
-        self._configDirty = not success or next(self._pendingConfigFlags) ~= nil
-        -- A write already in flight may outlive Destroy. Flush the final edits
-        -- without recreating a timer or touching the destroyed GUI.
-    until not (success and (self.Destroyed or self._destroying) and self.AutoSave and self._configDirty)
-    file.busy = nil
-    self._configBusy = nil
-    self._flushOnDestroy = nil
-    local saveAgain = self._saveAgain
-    self._saveAgain = nil
-    if not success then
-        self:_SetSaveStatus(failureStatus)
-        warn("UILibrary: " .. tostring(failure))
-        return false
-    end
-    self._autoSaveBlocked = nil
-    self:_SetSaveStatus("Ready")
-    if not self.Destroyed and self._configDirty then
-        if saveAgain and not self.AutoSave then
-            self._saveTask = task.defer(function()
-                self._saveTask = nil
-                if not self.Destroyed then self:SaveConfig() end
-            end)
-        else
-            self:_QueueSave()
-        end
-    end
-    return true
-end
-
-function UILibrary:LoadConfig(applyCallbacks)
-    return runConfigOperation(function() return self:_ReadConfig(applyCallbacks) end)
-end
-
-function UILibrary:_ReadConfig(applyCallbacks)
-    if self.Destroyed or self._destroying or self._configBusy then return false end
-    if not getEnvFunction("readfile") and not getEnvFunction("writefile") then
-        return false
-    end
-
-    self._configBusy = "load"
-    local version = self._configVersion or 0
-    local file = self._configFileState
-    lockConfigFile(file)
-    local decoded, _, primaryError = readConfig(self.ConfigPath)
-    local recovered = false
-    local backupError
-    if not decoded then
-        decoded, _, backupError = readConfig(self.ConfigPath .. ".bak")
-        recovered = decoded ~= nil
-    end
-    file.busy = nil
-    -- Only a confirmed missing file is safe to initialize automatically.
-    local unchecked = primaryError == "unchecked" or not decoded and backupError == "unchecked"
-    self._autoSaveBlocked = unchecked or primaryError == "unreadable"
-        or not decoded and (primaryError ~= "missing" or backupError ~= "missing")
-    local failureStatus = unchecked and "FileCheckUnavailable" or "LoadFailed"
-    if self._autoSaveBlocked then
-        self:_SetSaveStatus(failureStatus)
-        if unchecked then warn("UILibrary: cannot confirm missing config without a working isfile: " .. self.ConfigPath) end
-        if self._saveTask then task.cancel(self._saveTask); self._saveTask = nil end
-    end
-    if not decoded or self.Destroyed or self._destroying or (self._configVersion or 0) ~= version then
-        self._configBusy = nil
-        if self.Destroyed and self._flushOnDestroy and not self._autoSaveBlocked then
-            self:_WriteConfig(true)
-        elseif self._configDirty then
-            self:_QueueSave()
-        end
-        return false
-    end
-    self:_SetSaveStatus(self._autoSaveBlocked and failureStatus or recovered and "Recovered" or "Ready")
-
-    if self._saveTask then
-        task.cancel(self._saveTask)
-        self._saveTask = nil
-    end
-    self._configDirty = false
-    self._pendingConfigFlags = {}
-    self.flags = copyFlagValue(decoded)
-    self.loadedFlags = copyFlagValue(decoded)
-    for _, tab in ipairs(self.tabs or {}) do
-        for _, element in ipairs(tab.elements) do
-            if element.Flag and decoded[element.Flag] == nil then
-                self.flags[element.Flag] = element:_GetPersistedValue()
-                self._pendingConfigFlags[element.Flag] = {fillOnly = true}
-            end
-        end
-    end
-
-    -- Apply without disk writes. Setters normalize persisted values for each control.
-    self._loading = true
-    local okApply, applyError = pcall(function()
-        for _, tab in ipairs(self.tabs or {}) do
-            for _, element in ipairs(tab.elements) do
-                if element.Flag and decoded[element.Flag] ~= nil then
-                    element:SetValue(decoded[element.Flag], applyCallbacks ~= true)
-                end
-            end
-        end
-    end)
-    self._loading = false
-    self._configBusy = nil
-    if not okApply then
-        warn("UILibrary: failed to apply config: " .. tostring(applyError))
-        return false
-    end
-
-    return true
-end
-
-local function finishDestroy(self)
-    self.Destroyed = true
-    disconnectAll(self._connections)
-    for index = #(self.tabs or {}), 1, -1 do self.tabs[index]:RemoveTab() end
-    if self.ScreenGui and not self._screenDestroying then self.ScreenGui:Destroy() end
-end
-
-function UILibrary:Destroy()
-    if self.Destroyed or self._destroying then return end
-    self._destroying = true
-    self:_CancelInteractions()
-    if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
-        if self._configBusy == "load" then
-            self._flushOnDestroy = true
-        elseif not self._configBusy then
-            return runConfigOperation(function()
-                self:_WriteConfig(true)
-                finishDestroy(self)
-            end)
-        end
-    end
-    finishDestroy(self)
-end
-
-function Tab:RemoveTab()
-    if self.Destroyed then return end
-    self.Destroyed = true
-    for index = #self.elements, 1, -1 do self.elements[index]:Remove() end
-    if not self._buttonDestroying then self.button:Destroy() end
-    if not self._contentDestroying then self.content:Destroy() end
-    for i, item in ipairs(self.library.tabs) do
-        if item == self then
-            table.remove(self.library.tabs, i)
-            break
-        end
-    end
-    if self.library.currentTab == self.name then
-        local first = self.library.tabs[1]
-        if first then
-            self.library:SwitchTab(first.name)
-        else
-            self.library.currentTab = nil
-        end
-    end
-end
-
-function Tab:_RevealButton()
-    task.defer(function()
-        local button = self.button
-        if self.Destroyed or not isVisible(self.library, button) then return end
-        revealSelection(self.library.TabContainer, button, "X")
-    end)
-end
-
-function UILibrary:CreateTab(args)
-    args = args or {}
-    assert(not self.Destroyed and not self._destroying, "Cannot create a tab on a destroyed library")
-    local name = args.Name or "Tab"
-    for _, existing in ipairs(self.tabs) do
-        assert(existing.name ~= name, "Duplicate tab: " .. tostring(name))
-    end
-
-    local tab = setmetatable({
-        library = self,
-        name = name,
-        elements = {},
-        _layoutOrder = 0
-    }, Tab)
-
-    tab.button = Instance.new("TextButton")
-    tab.button.Name = name
-    tab.button:SetAttribute("__uiChrome", true)
-    tab.button.Parent = self.TabContainer
-    tab.button.BackgroundColor3 = Theme.Tab
-    tab.button.BorderColor3 = Theme.Border
-    tab.button.BorderSizePixel = 0
-    tab.button.Size = UDim2.new(0, args.Width or 120, 1, -self.TabScrollBarThickness)
-    tab.button.Font = Enum.Font.Code
-    tab.button.Text = name
-    tab.button.TextColor3 = Theme.TextDim
-    tab.button.TextSize = args.TextSize or 13
-    tab.button.AutoButtonColor = false
-    tab.button.TextTruncate = Enum.TextTruncate.AtEnd
-    self:_DecorateObject(tab.button)
-    tab._resetFeedback, tab._setActiveFeedback = bindButtonFeedback(tab.button, Theme.Tab)
-    tab.button.SelectionGained:Connect(function() tab:_RevealButton() end)
-    self._tabOrder = (self._tabOrder or 0) + 1
-    tab.button.LayoutOrder = self._tabOrder
-    tab.button.ZIndex = 3
-    tab.indicator = Instance.new("Frame")
-    tab.indicator.Name = "ActiveIndicator"
-    tab.indicator.Parent = tab.button
-    tab.indicator.BackgroundColor3 = Theme.Accent
-    tab.indicator.BorderSizePixel = 0
-    tab.indicator.Position = UDim2.new(0, ROW_INSET, 1, -2)
-    tab.indicator.Size = UDim2.new(1, -2 * ROW_INSET, 0, 2)
-    tab.indicator.Visible = false
-
-    tab.content = Instance.new("ScrollingFrame")
-    tab.content.Name = name .. "Content"
-    tab.content.Parent = self.ContentArea
-    tab.content.BackgroundTransparency = 1
-    tab.content.BorderSizePixel = 0
-    tab.content.Size = UDim2.new(1, 0, 1, 0)
-    tab.content.ScrollingDirection = Enum.ScrollingDirection.Y
-    tab.content.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-    tab.content.ScrollBarThickness = 4
-    tab.content.ScrollBarImageColor3 = Theme.BorderHover
-    tab.content.CanvasSize = UDim2.new(0, 0, 0, 0)
-    tab.content.Visible = false
-    tab.content.ClipsDescendants = true
-    tab.content.ZIndex = 1
-    tab.button.Destroying:Connect(function()
-        tab._buttonDestroying = true
-        tab:RemoveTab()
-    end)
-    tab.content.Destroying:Connect(function()
-        tab._contentDestroying = true
-        tab:RemoveTab()
-    end)
-
-    local layout = Instance.new("UIListLayout")
-    layout.Parent = tab.content
-    layout.Padding = UDim.new(0, 6)
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    tab.layout = layout
-
-    local padding = Instance.new("UIPadding")
-    padding.Parent = tab.content
-    padding.PaddingLeft = UDim.new(0, ROW_INSET)
-    padding.PaddingRight = UDim.new(0, ROW_INSET)
-    padding.PaddingTop = UDim.new(0, 10)
-    padding.PaddingBottom = UDim.new(0, 10)
-
-    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        tab:_RefreshCanvas()
-    end)
-
-    bindActivation(self, tab.button, function()
-        self:SwitchTab(name)
-    end)
-
-    table.insert(self.tabs, tab)
-    if self.BackgroundEnabled then self:_applyChromeTransparency(true, tab.button) end
-
-    if #self.tabs == 1 then
-        self:SwitchTab(name)
-    end
-
-    return tab
-end
-
-function UILibrary:SwitchTab(name)
-    if self.Destroyed or self._destroying then return false end
-    local nextTab
-    for _, tab in ipairs(self.tabs) do
-        if tab.name == name then nextTab = tab; break end
-    end
-    if not nextTab then return false end
-    if self.currentTab == name then return true end
-    self:_CancelInteractions()
-    self.currentTab = name
-    for _, tab in ipairs(self.tabs) do
-        local active = tab == nextTab
-        tab.indicator.Visible = active
-        tab.content.Visible = active
-        tab.button.TextColor3 = active and Theme.Accent or Theme.TextDim
-        tab._setActiveFeedback(active)
-    end
-    nextTab:_RevealButton()
-    return true
-end
-
-function Tab:Textbox(args)
-    args = args or {}
-    local labelText = args.Text or "TextBox"
-    local callback = args.Callback
-    local flag = args.Flag or args.Save
-
-    local default = args.Default or ""
-    default = self:_GetSaved(flag, default)
-    default = tostring(default)
-
-    local frame = createRow(self, "Frame", "Textbox", args.Height, INPUT_ROW_HEIGHT)
-
-    local label = createLabel(frame, labelText, args.TextSize)
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(0.42, -18, 1, 0)
-
-    local boxFrame = createInputSurface(frame, "Frame")
-    boxFrame.Name = "TextboxInput"
-
-    local box = Instance.new("TextBox")
-    box.Parent = boxFrame
-    box.BackgroundTransparency = 1
-    box.BorderSizePixel = 0
-    box.Position = UDim2.new(0, 6, 0, 0)
-    box.Size = UDim2.new(1, -12, 1, 0)
-    box.PlaceholderColor3 = Theme.TextDim
-    box.Font = Enum.Font.Code
-    box.Text = default
-    box.PlaceholderText = tostring(args.Placeholder or "")
-    box.TextColor3 = Theme.Text
-    box.TextSize = args.TextSize or 13
-    box.TextXAlignment = Enum.TextXAlignment.Left
-    box.ClearTextOnFocus = false
-
-    local hovering = false
-    local function renderFocus()
-        frame.BackgroundColor3 = (hovering or box:IsFocused()) and Theme.ElementHover or Theme.Element
-        boxFrame.BorderColor3 = box:IsFocused() and Theme.Accent or hovering and Theme.BorderHover or Theme.Border
-    end
-    box.Focused:Connect(renderFocus)
-
-    local skipFocusLost = 0
-    local committedText = box.Text
-    local function commitText(enterPressed)
-        local newText = box.Text or ""
-        committedText = newText
-        self:_SaveFlag(flag, newText)
-        dispatchCallback(self, frame, callback, newText, enterPressed)
-    end
-    local function releaseEditing()
-        hovering = false
-        if box.Text ~= committedText then commitText(false) end
-        if box:IsFocused() then
-            skipFocusLost = skipFocusLost + 1
-            box:ReleaseFocus()
-        end
-        renderFocus()
-    end
-    box.FocusLost:Connect(function(enterPressed)
-        renderFocus()
-        if skipFocusLost > 0 then
-            skipFocusLost = skipFocusLost - 1
-        elseif box.Text ~= committedText or enterPressed then
-            commitText(enterPressed)
-        end
-    end)
-
-    frame.MouseEnter:Connect(function()
-        hovering = true
-        renderFocus()
-    end)
-
-    frame.MouseLeave:Connect(function()
-        hovering = false
-        renderFocus()
-    end)
-
-    local element = Element.new(self, frame, {
-        Type = "Textbox",
-        Flag = flag,
-        OnHide = releaseEditing,
-        GetValue = function() return box.Text end,
-        SetValue = function(val, noCallback)
-            box.Text = val == nil and "" or tostring(val)
-            committedText = box.Text
-            self:_SaveFlag(flag, box.Text)
-            if callback and not noCallback then
-                dispatchCallback(self, frame, callback, box.Text, false)
-            end
-        end
-    })
-    self:_BindFlag(flag, element)
-
-    if flag and self.library.loadedFlags[flag] ~= nil and args.CallOnLoad ~= false and callback then
-        dispatchCallback(self, frame, callback, box.Text, false)
-    end
-
-    return element
 end
 
 return UILibrary

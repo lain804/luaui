@@ -1,5 +1,5 @@
--- In Studio, put this LocalScript beside a ModuleScript named "main" containing main.lua.
--- Standalone executor runs load the matching library revision.
+-- In Studio, put this LocalScript beside a ModuleScript named "main" containing the generated root main.lua.
+-- Standalone executor runs use the pinned revision below.
 -- Config persistence uses readfile/writefile and isfile to check for new files.
 -- Callbacks run deferred, after each control finishes updating.
 local libraryModule = script and script.Parent and script.Parent:FindFirstChild("main")

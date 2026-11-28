@@ -6,8 +6,13 @@ from tempfile import TemporaryDirectory
 
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "main.lua").read_text(encoding="utf-8")
 with TemporaryDirectory() as directory:
+    bundle = Path(directory) / "main.lua"
+    subprocess.run(["darklua", "process", "src/main.lua", str(bundle)], cwd=root, check=True)
+    source = bundle.read_text(encoding="utf-8")
+    if source != (root / "main.lua").read_text(encoding="utf-8"):
+        raise SystemExit("main.lua is stale. Run darklua process src/main.lua main.lua")
+
     for name in ("config.luau", "focus.luau"):
         script = Path(directory) / name
         template = (root / "tests" / name).read_text(encoding="utf-8")
