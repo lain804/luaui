@@ -1,6 +1,6 @@
 # LuaUI
 
-`main.lua` is the standalone Roblox distribution. Copy it into a ModuleScript named `main` to run `example.lua` beside it as a LocalScript in Studio. The showcase's standalone HTTP fallback uses a pinned historical revision.
+`main.lua` is the standalone Roblox distribution. Copy it into a ModuleScript named `main` to run `example.lua` beside it as a LocalScript in Studio. The standalone showcase loads the bundle from a pinned commit.
 
 ## Build and test
 
