@@ -32,6 +32,15 @@ local Enum = setmetatable({}, {
         return setmetatable({}, {__index = function(_, member) return member end})
     end,
 })
+local keyCodes = setmetatable({}, {__index = function(_, key) return key end})
+keyCodes.Tab = {Name = "Tab", EnumType = keyCodes}
+keyCodes.Unknown = {Name = "Unknown", EnumType = keyCodes}
+Enum.KeyCode = keyCodes
+local nativeTypeof = typeof
+local function typeof(value)
+    if type(value) == "table" and value.EnumType == keyCodes then return "EnumItem" end
+    return nativeTypeof(value)
+end
 local UDim = {new = function(scale, offset) return {Scale = scale, Offset = offset} end}
 local UDim2 = {
     new = function(xs, xo, ys, yo) return {X = UDim.new(xs, xo), Y = UDim.new(ys, yo)} end,
@@ -164,15 +173,9 @@ assert(lib._focusedControl == textbox and textbox.Focused)
 lib:_FocusStep(-1, textbox)
 assert(lib._focusedControl == otherTab and not textbox.Focused)
 
-lib.MainFrame = Instance.new("Frame")
-lib.MainFrame.Parent = screen
-lib.TabContainer = Instance.new("ScrollingFrame")
-lib.TabContainer.Parent = lib.MainFrame
-lib.ContentArea = Instance.new("Frame")
-lib.ContentArea.Parent = lib.MainFrame
-lib.TabScrollBarThickness = 4
-lib.tabs, lib.currentTab = {}, nil
 lib:_ClearNavigation()
+lib = UI.new({Parent = Instance.new("Frame"), AutoLoad = false, AutoSave = false})
+screen = lib.ScreenGui
 local tab = lib:CreateTab({Name = "Search"})
 local element = tab:Dropdown({Options = {"Alpha", "Beta", "Alphabet"}, Multi = true})
 local trigger = child(element.Instance, "TextButton")
@@ -192,11 +195,11 @@ trigger.Activated:Fire()
 assert(popup.Visible and search.Position.Y.Offset < options.Position.Y.Offset)
 assert(lib._focusedControl == nil and options.Selectable == false)
 
-lib:_SetControlFocus(mainTab)
+lib:_SetControlFocus(tab.button)
 input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0, "Ctrl+A selected options while keyboard focus was outside the dropdown")
-input.InputBegan:Fire({KeyCode = "Tab"})
-assert(lib._focusedControl == mainTab, "An unfocused dropdown took keyboard focus")
+input.InputBegan:Fire({KeyCode = Enum.KeyCode.Tab, UserInputType = "Keyboard"})
+assert(lib._focusedControl == tab.button, "An unfocused dropdown took keyboard focus")
 
 local popupY, popupHeight = popup.Position.Y.Offset, popup.Size.Y.Offset
 assert(popupY < trigger.AbsolutePosition.Y)
@@ -266,18 +269,25 @@ local secondTab = second:CreateTab({Name = "Second"})
 local firstButton = firstTab:Button().Instance
 local secondButton = secondTab:Button().Instance
 first:_SetControlFocus(firstTab.button)
-input.InputBegan:Fire({KeyCode = "Tab"})
+input.InputBegan:Fire({KeyCode = Enum.KeyCode.Tab, UserInputType = "Keyboard"})
 assert(first._focusedControl == firstButton and not second._focusedControl)
 second:_SetControlFocus(secondTab.button)
-input.InputBegan:Fire({KeyCode = "Tab"})
+input.InputBegan:Fire({KeyCode = Enum.KeyCode.Tab, UserInputType = "Keyboard"})
 assert(second._focusedControl == secondButton and not first._focusedControl)
 second:_ClearNavigation()
-input.InputBegan:Fire({KeyCode = "Tab"})
+local shortcutCalls = 0
+firstTab:Keybind({Default = "Tab", Callback = function() shortcutCalls += 1 end})
+local tabKey = {KeyCode = Enum.KeyCode.Tab, UserInputType = "Keyboard"}
+first:_SetControlFocus(firstTab.button)
+input.InputBegan:Fire(tabKey)
+assert(first._focusedControl == firstButton)
+first:_ClearNavigation()
+input.InputBegan:Fire(tabKey)
 assert(not first._focusedControl and not second._focusedControl)
 assert(gui.SelectedObject == externalSelection)
 
 local function press(key, processed)
-    local event = {KeyCode = key, UserInputType = "Keyboard"}
+    local event = {KeyCode = Enum.KeyCode[key], UserInputType = "Keyboard"}
     input.InputBegan:Fire(event, processed)
     input.InputEnded:Fire(event)
 end
@@ -356,9 +366,10 @@ press("Return")
 assert(gui.SelectedObject == externalSelection and not first._focusedControl)
 
 press("ButtonSelect")
-assert(first._focusedControl == controls.button or second._focusedControl == secondTab.button)
+assert(first._focusedControl == controls.button or second._focusedControl == secondTab.button
+    or lib._focusedControl == tab.button)
 press("ButtonB")
-assert(not first._focusedControl and not second._focusedControl)
+assert(not first._focusedControl and not second._focusedControl and not lib._focusedControl)
 
 first:SetBackground(123, 0.4)
 assert(first.BackgroundImage.Image == "rbxassetid://123" and first.BackgroundEnabled and first.ContentArea.BackgroundTransparency == 1)
@@ -442,6 +453,7 @@ assert(input.InputChanged:Count() == idleListeners)
 
 for _, callback in ipairs(deferred) do callback() end
 assert(buttonClicks == 1 and submitCount == 1)
+assert(shortcutCalls == 1, "Only the unclaimed Tab should reach the registered keybind")
 assert(gui.SelectedObject == externalSelection)
 
 print("Focus traversal and dropdown checks passed")

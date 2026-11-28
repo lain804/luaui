@@ -99,7 +99,8 @@ end
 
 function Focus:_HandleInput(input, gameProcessed, visibilityKey)
     if self.Destroyed or not self.ScreenGui.Enabled then return end
-    if Input.isPointerPress(input) then
+    local pointer = Input.isPointerPress(input)
+    if pointer then
         if navigationWindow == self then
             if self.MainFrame.Visible and Input.containsPoint(self.MainFrame, input.Position) then
                 self:_SetControlFocus(nil)
@@ -108,9 +109,12 @@ function Focus:_HandleInput(input, gameProcessed, visibilityKey)
                 self:_ClearNavigation()
             end
         end
-        return
     end
-    if self._closeDropdown or self._cancelKeybind then return end
+    if self._dropdownInput then
+        self._dropdownInput(input, gameProcessed)
+        return true
+    end
+    if pointer or self._cancelKeybind then return end
 
     local focused = UserInputService:GetFocusedTextBox()
     if focused and not focused:IsDescendantOf(self.MainFrame) then return end

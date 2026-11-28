@@ -364,6 +364,7 @@ return function(self, args)
         disconnectAll(placeConnections)
         if self.library._closeDropdown == closeDropdown then
             self.library._closeDropdown = nil
+            self.library._dropdownInput = nil
         end
     end
 
@@ -515,7 +516,7 @@ return function(self, args)
         isOpen = true
         search.Text = ""
         filterOptions()
-        table.insert(placeConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        self.library._dropdownInput = function(input, gameProcessed)
             if not isOpen or not isVisible(self.library, dropdown) then return end
             local key = input.KeyCode
             if isPointerPress(input) then
@@ -531,7 +532,6 @@ return function(self, args)
             if focused and focused ~= search then return end
             if gameProcessed and focused ~= search then return end
             if not focused and not hasFocus and not openedByPointer then return end
-            self.library._capturedInput = input
             if key == Enum.KeyCode.Escape and focused == search then
                 search:ReleaseFocus()
                 focusOption(activeIndex)
@@ -572,7 +572,7 @@ return function(self, args)
                     chooseOption(optionButtons[activeIndex].Option)
                 end
             end
-        end))
+        end
         placeDropdown()
         if not isOpen then return end
         overlay.Visible = true

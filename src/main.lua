@@ -138,6 +138,7 @@ function UILibrary.new(args)
 
     self.Destroyed = false
     self._connections = {}
+    self._keybindHandlers = {}
     self.flags = {}
     self.loadedFlags = {}
     self.elementsByFlag = {}
@@ -332,7 +333,6 @@ function UILibrary.new(args)
     local function cancelWindowInteractions()
         stopGestures()
         self:_CancelInteractions()
-        self._capturedInput = nil
         self:_ClearNavigation()
         resetTabFeedback()
         resetResizeFeedback()
@@ -375,13 +375,15 @@ function UILibrary.new(args)
         end
     end))
     table.insert(self._connections, UserInputService.InputEnded:Connect(function(input)
-        if self._capturedInput == input then self._capturedInput = nil end
         if input == pointer then stopGestures() end
     end))
     table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
     local visibilityKey = args.KeyCode or Enum.KeyCode.KeypadZero
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if self:_HandleInput(input, gameProcessed, visibilityKey) then self._capturedInput = input end
+        if self:_HandleInput(input, gameProcessed, visibilityKey) then return end
+        for handler in pairs(self._keybindHandlers) do
+            if handler(input, gameProcessed) then break end
+        end
     end))
     self.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         if not self.MainFrame.Visible then cancelWindowInteractions() end

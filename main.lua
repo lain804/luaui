@@ -758,7 +758,8 @@ end
 
 function Focus:_HandleInput(input, gameProcessed, visibilityKey)
     if self.Destroyed or not self.ScreenGui.Enabled then return end
-    if Input.isPointerPress(input) then
+    local pointer = Input.isPointerPress(input)
+    if pointer then
         if navigationWindow == self then
             if self.MainFrame.Visible and Input.containsPoint(self.MainFrame, input.Position) then
                 self:_SetControlFocus(nil)
@@ -767,9 +768,12 @@ function Focus:_HandleInput(input, gameProcessed, visibilityKey)
                 self:_ClearNavigation()
             end
         end
-        return
     end
-    if self._closeDropdown or self._cancelKeybind then return end
+    if self._dropdownInput then
+        self._dropdownInput(input, gameProcessed)
+        return true
+    end
+    if pointer or self._cancelKeybind then return end
 
     local focused = UserInputService:GetFocusedTextBox()
     if focused and not focused:IsDescendantOf(self.MainFrame) then return end
@@ -2084,6 +2088,7 @@ return function(self, args)
         disconnectAll(placeConnections)
         if self.library._closeDropdown == closeDropdown then
             self.library._closeDropdown = nil
+            self.library._dropdownInput = nil
         end
     end
 
@@ -2235,7 +2240,7 @@ return function(self, args)
         isOpen = true
         search.Text = ""
         filterOptions()
-        table.insert(placeConnections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        self.library._dropdownInput = function(input, gameProcessed)
             if not isOpen or not isVisible(self.library, dropdown) then return end
             local key = input.KeyCode
             if isPointerPress(input) then
@@ -2251,7 +2256,6 @@ return function(self, args)
             if focused and focused ~= search then return end
             if gameProcessed and focused ~= search then return end
             if not focused and not hasFocus and not openedByPointer then return end
-            self.library._capturedInput = input
             if key == Enum.KeyCode.Escape and focused == search then
                 search:ReleaseFocus()
                 focusOption(activeIndex)
@@ -2292,7 +2296,7 @@ return function(self, args)
                     chooseOption(optionButtons[activeIndex].Option)
                 end
             end
-        end))
+        end
         placeDropdown()
         if not isOpen then return end
         overlay.Visible = true
@@ -2450,10 +2454,8 @@ return function(self, args)
         render()
     end)
 
-    local inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    local function handleInput(input, gameProcessed)
         if self.Destroyed or self.library.Destroyed or not self.library.ScreenGui.Enabled or not frame.Parent then return end
-        if self.library._closeDropdown then return end
-        if self.library._capturedInput == input then return end
         if self.library._cancelKeybind and not listening then return end
         if gameProcessed and not listening then return end
         local gamepad = tostring(input.UserInputType):match("^Enum%.UserInputType%.Gamepad") ~= nil
@@ -2461,24 +2463,22 @@ return function(self, args)
         if input.KeyCode == Enum.KeyCode.Unknown then return end
 
         if listening then
-            self.library._capturedInput = input
             if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB then
                 cancelListening()
-                return
-            end
-            if input.KeyCode == Enum.KeyCode.Backspace then
+            elseif input.KeyCode == Enum.KeyCode.Backspace then
                 setKey(Enum.KeyCode.Unknown)
-                return
+            else
+                setKey(input.KeyCode)
             end
-            setKey(input.KeyCode)
-            return
+            return true
         end
 
         if shouldIgnoreForTextBox() then return end
         if keyCode and keyCode ~= Enum.KeyCode.Unknown and input.KeyCode == keyCode and callback then
             dispatchCallback(self, frame, callback, input)
         end
-    end)
+    end
+    self.library._keybindHandlers[handleInput] = true
 
     render()
 
@@ -2494,7 +2494,7 @@ return function(self, args)
             resetFeedback()
         end,
         Cleanup = function()
-            inputConnection:Disconnect()
+            self.library._keybindHandlers[handleInput] = nil
         end
     })
     self:_BindFlag(flag, element)
@@ -3015,6 +3015,7 @@ function UILibrary.new(args)
 
     self.Destroyed = false
     self._connections = {}
+    self._keybindHandlers = {}
     self.flags = {}
     self.loadedFlags = {}
     self.elementsByFlag = {}
@@ -3209,7 +3210,6 @@ function UILibrary.new(args)
     local function cancelWindowInteractions()
         stopGestures()
         self:_CancelInteractions()
-        self._capturedInput = nil
         self:_ClearNavigation()
         resetTabFeedback()
         resetResizeFeedback()
@@ -3252,13 +3252,15 @@ function UILibrary.new(args)
         end
     end))
     table.insert(self._connections, UserInputService.InputEnded:Connect(function(input)
-        if self._capturedInput == input then self._capturedInput = nil end
         if input == pointer then stopGestures() end
     end))
     table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
     local visibilityKey = args.KeyCode or Enum.KeyCode.KeypadZero
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if self:_HandleInput(input, gameProcessed, visibilityKey) then self._capturedInput = input end
+        if self:_HandleInput(input, gameProcessed, visibilityKey) then return end
+        for handler in pairs(self._keybindHandlers) do
+            if handler(input, gameProcessed) then break end
+        end
     end))
     self.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         if not self.MainFrame.Visible then cancelWindowInteractions() end

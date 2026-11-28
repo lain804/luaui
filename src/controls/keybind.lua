@@ -104,10 +104,8 @@ return function(self, args)
         render()
     end)
 
-    local inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    local function handleInput(input, gameProcessed)
         if self.Destroyed or self.library.Destroyed or not self.library.ScreenGui.Enabled or not frame.Parent then return end
-        if self.library._closeDropdown then return end
-        if self.library._capturedInput == input then return end
         if self.library._cancelKeybind and not listening then return end
         if gameProcessed and not listening then return end
         local gamepad = tostring(input.UserInputType):match("^Enum%.UserInputType%.Gamepad") ~= nil
@@ -115,24 +113,22 @@ return function(self, args)
         if input.KeyCode == Enum.KeyCode.Unknown then return end
 
         if listening then
-            self.library._capturedInput = input
             if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB then
                 cancelListening()
-                return
-            end
-            if input.KeyCode == Enum.KeyCode.Backspace then
+            elseif input.KeyCode == Enum.KeyCode.Backspace then
                 setKey(Enum.KeyCode.Unknown)
-                return
+            else
+                setKey(input.KeyCode)
             end
-            setKey(input.KeyCode)
-            return
+            return true
         end
 
         if shouldIgnoreForTextBox() then return end
         if keyCode and keyCode ~= Enum.KeyCode.Unknown and input.KeyCode == keyCode and callback then
             dispatchCallback(self, frame, callback, input)
         end
-    end)
+    end
+    self.library._keybindHandlers[handleInput] = true
 
     render()
 
@@ -148,7 +144,7 @@ return function(self, args)
             resetFeedback()
         end,
         Cleanup = function()
-            inputConnection:Disconnect()
+            self.library._keybindHandlers[handleInput] = nil
         end
     })
     self:_BindFlag(flag, element)
