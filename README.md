@@ -12,3 +12,7 @@ python tests/run.py
 ```
 
 The tests require Darklua and the Luau CLI on `PATH`. They rebuild the bundle in a temporary directory, check that the distribution is current, and exercise it with Roblox service doubles.
+
+## Navigation
+
+Click inside the window to enable keyboard navigation. Left and Right switch tabs, Up and Down move through controls, and Tab or Shift+Tab traverses tabs and controls. Enter activates a focused button or starts editing a focused text field. On a controller, use Select to enter UI navigation, the D-pad to move, and A to activate. Escape, B, or clicking outside releases UI focus. An open dropdown handles Escape first so you can leave its search field and continue navigating the options.

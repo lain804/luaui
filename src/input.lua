@@ -12,15 +12,21 @@ local function isPointerPress(input)
         or input.UserInputType == Enum.UserInputType.Touch
 end
 
+local function containsPoint(object, point)
+    local position, size = object.AbsolutePosition, object.AbsoluteSize
+    return point.X >= position.X and point.X < position.X + size.X
+        and point.Y >= position.Y and point.Y < position.Y + size.Y
+end
+
 local function bindButtonFeedback(button, idleColor)
-    local hovering, focused, active = false, false, false
+    local hovering, active = false, false
     local releaseConnection, transition
     local function render(immediate)
         local pressed = releaseConnection ~= nil
         local background = pressed and Theme.ElementPressed
             or active and Theme.TabActive
-            or (hovering or focused) and Theme.ElementHover or idleColor
-        local border = (pressed or focused or active) and Theme.Accent
+            or hovering and Theme.ElementHover or idleColor
+        local border = (pressed or active) and Theme.Accent
             or hovering and Theme.BorderHover or Theme.Border
         if transition then transition:Cancel(); transition = nil end
         if immediate or GuiService.ReducedMotionEnabled then
@@ -39,15 +45,13 @@ local function bindButtonFeedback(button, idleColor)
         render(immediate)
     end
     local function reset()
-        hovering, focused = false, false
+        hovering = false
         release(true)
     end
     button.MouseEnter:Connect(function() hovering = true; render() end)
     button.MouseLeave:Connect(function() hovering = false; release() end)
-    button.SelectionGained:Connect(function() focused = true; render() end)
-    button.SelectionLost:Connect(function() focused = false; release() end)
     button.InputBegan:Connect(function(input)
-        if releaseConnection or not isPointerPress(input) and input.KeyCode ~= Enum.KeyCode.ButtonA then return end
+        if releaseConnection or not isPointerPress(input) then return end
         releaseConnection = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End
                 or input.UserInputState == Enum.UserInputState.Cancel then release() end
@@ -82,8 +86,8 @@ local function bindActivation(library, button, callback)
     library._activationHandlers[button] = activate
     button.Destroying:Connect(function() library._activationHandlers[button] = nil end)
     return button.Activated:Connect(function(input, ...)
-        if input and isPointerPress(input) and isVisible(library, button) and button.Selectable then
-            GuiService.SelectedObject = button
+        if input and isPointerPress(input) and isVisible(library, button) then
+            library:_SetPointerOrigin(button)
         end
         activate(input, ...)
     end)
@@ -110,19 +114,20 @@ local function revealSelection(frame, object, axis)
     frame.CanvasPosition = axis == "X" and Vector2.new(offset, canvas.Y) or Vector2.new(canvas.X, offset)
 end
 
-local function stepFocus(targets, direction, focused, controlCanvas)
+local function stepFocus(library, targets, direction, focused, controlCanvas)
     if #targets == 0 then return end
-    local index = table.find(targets, focused or GuiService.SelectedObject) or (direction > 0 and 0 or 1)
+    local index = table.find(targets, focused or library._focusedControl or library._pointerOrigin) or (direction > 0 and 0 or 1)
     local target = targets[(index - 1 + direction) % #targets + 1]
     if focused and focused ~= target then focused:ReleaseFocus() end
     if controlCanvas then revealSelection(controlCanvas, target, "Y") end
-    GuiService.SelectedObject = target
+    library:_SetControlFocus(target)
     if not controlCanvas and target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
     return target
 end
 
 return {
     isPointerPress = isPointerPress,
+    containsPoint = containsPoint,
     bindButtonFeedback = bindButtonFeedback,
     isVisible = isVisible,
     bindActivation = bindActivation,

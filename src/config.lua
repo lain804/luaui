@@ -369,6 +369,7 @@ function Config:Destroy()
     if self.Destroyed or self._destroying then return end
     self._destroying = true
     self:_CancelInteractions()
+    self:_ClearNavigation()
     if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
         if self._configBusy == "load" then
             self._flushOnDestroy = true

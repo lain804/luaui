@@ -1,5 +1,4 @@
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Element = require("../element")
 local dispatchCallback = Element.dispatchCallback
@@ -14,6 +13,7 @@ local bindButtonFeedback = Input.bindButtonFeedback
 local bindActivation = Input.bindActivation
 local isVisible = Input.isVisible
 local isPointerPress = Input.isPointerPress
+local containsPoint = Input.containsPoint
 local focusDirection = Input.focusDirection
 local stepFocus = Input.stepFocus
 local Util = require("../util")
@@ -131,11 +131,6 @@ return function(self, args)
     dropdown.Visible = false
     dropdown.Active = true
     dropdown.ClipsDescendants = true
-    dropdown.SelectionGroup = true
-    dropdown.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
     dropdown.ZIndex = 50
 
     local scrollFrame = Instance.new("ScrollingFrame")
@@ -145,6 +140,7 @@ return function(self, args)
     scrollFrame.Position = UDim2.new(0, 0, 0, headerHeight)
     scrollFrame.Size = UDim2.new(1, 0, 1, -headerHeight - footerHeight)
     scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+    scrollFrame.Selectable = false
     scrollFrame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
     scrollFrame.ScrollBarThickness = 4
     scrollFrame.ScrollBarImageColor3 = Theme.BorderHover
@@ -262,7 +258,7 @@ return function(self, args)
     local function focusOption(index, keepSelection)
         setOptionHighlight(table.find(visibleIndices, index) and index or visibleIndices[1], nil)
         if not keepSelection and not search:IsFocused() then
-            GuiService.SelectedObject = activeIndex and optionButtons[activeIndex].Button or search
+            self.library:_SetControlFocus(activeIndex and optionButtons[activeIndex].Button or search)
         end
         if not activeIndex then return end
         local top = (table.find(visibleIndices, activeIndex) - 1) * optionHeight
@@ -355,8 +351,9 @@ return function(self, args)
         isOpen = false
         setOptionHighlight(nil, nil)
         if search:IsFocused() then search:ReleaseFocus() end
-        if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(overlay) then
-            GuiService.SelectedObject = isVisible(self.library, button) and button or nil
+        local focused = self.library._focusedControl
+        if focused and focused:IsDescendantOf(overlay) then
+            self.library:_SetControlFocus(isVisible(self.library, button) and button or nil)
         end
         dropdown.Visible = false
         overlay.Visible = false
@@ -426,9 +423,6 @@ return function(self, args)
         })
 
         self.library:_DecorateObject(optionButton)
-        optionButton.SelectionGained:Connect(function()
-            if activeIndex ~= index then focusOption(index) end
-        end)
         optionButton.MouseEnter:Connect(function()
             setOptionHighlight(activeIndex, index)
         end)
@@ -476,7 +470,7 @@ return function(self, args)
     end
 
     local function rebuildOptionButtons()
-        local selectedObject = GuiService.SelectedObject
+        local selectedObject = self.library._focusedControl
         local hadOptionFocus = selectedObject and selectedObject:IsDescendantOf(scrollFrame)
         for _, item in ipairs(optionButtons) do
             item.Button:Destroy()
@@ -513,7 +507,7 @@ return function(self, args)
 
     outsideButton.Activated:Connect(closeDropdown)
 
-    local function openDropdown()
+    local function openDropdown(keyboard)
         if isOpen then return end
         if self.library._cancelKeybind then self.library._cancelKeybind() end
         if self.library._closeDropdown then self.library._closeDropdown() end
@@ -526,18 +520,17 @@ return function(self, args)
             local key = input.KeyCode
             if isPointerPress(input) then
                 -- The overlay handles clicks inside the window.
-                local x, y = input.Position.X, input.Position.Y
-                local main = self.library.MainFrame
-                local position, size = main.AbsolutePosition, main.AbsoluteSize
-                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
-                    closeDropdown()
-                end
+                if not containsPoint(self.library.MainFrame, input.Position) then closeDropdown() end
                 return
             end
             local focused = UserInputService:GetFocusedTextBox()
-            local selectedObject = GuiService.SelectedObject
-            if focused ~= search and (focused or not selectedObject
-                or not selectedObject:IsDescendantOf(dropdown) or not isVisible(self.library, selectedObject)) then return end
+            local selectedObject = self.library._focusedControl
+            local hasFocus = selectedObject and selectedObject:IsDescendantOf(dropdown)
+                and isVisible(self.library, selectedObject)
+            local openedByPointer = self.library._pointerOrigin == button
+            if focused and focused ~= search then return end
+            if gameProcessed and focused ~= search then return end
+            if not focused and not hasFocus and not openedByPointer then return end
             self.library._capturedInput = input
             if key == Enum.KeyCode.Escape and focused == search then
                 search:ReleaseFocus()
@@ -549,11 +542,14 @@ return function(self, args)
                 local targets = {search}
                 if activeIndex then table.insert(targets, optionButtons[activeIndex].Button) end
                 for _, bulk in ipairs(bulkButtons) do table.insert(targets, bulk) end
-                stepFocus(targets, focusDirection(), focused)
+                stepFocus(self.library, targets, focusDirection(), focused)
                 return
             end
-            if gameProcessed and focused ~= search then return end
-            if multiSelect and not focused and key == Enum.KeyCode.A
+            if key == Enum.KeyCode.ButtonSelect and not focused then
+                focusOption(activeIndex)
+                return
+            end
+            if multiSelect and hasFocus and not focused and key == Enum.KeyCode.A
                 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
                 bulkSelect(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
             elseif key == Enum.KeyCode.Down or key == Enum.KeyCode.DPadDown then
@@ -566,7 +562,8 @@ return function(self, args)
                 focusOption(visibleIndices[1])
             elseif key == Enum.KeyCode.End then
                 focusOption(visibleIndices[#visibleIndices])
-            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.Space) and not focused then
+            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter
+                or key == Enum.KeyCode.Space or key == Enum.KeyCode.ButtonA) and hasFocus and not focused then
                 if selectedObject == search then
                     search:CaptureFocus()
                 elseif table.find(bulkButtons, selectedObject) then
@@ -580,7 +577,7 @@ return function(self, args)
         if not isOpen then return end
         overlay.Visible = true
         dropdown.Visible = true
-        focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1])
+        focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1], not keyboard)
         arrow.Text = "^"
         arrow.TextColor3 = Theme.Accent
         setActiveFeedback(true)
@@ -595,7 +592,7 @@ return function(self, args)
         if isOpen then
             closeDropdown()
         else
-            openDropdown()
+            openDropdown(self.library._focusedControl == button)
         end
     end)
 

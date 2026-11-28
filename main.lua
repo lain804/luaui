@@ -146,15 +146,21 @@ local function isPointerPress(input)
         or input.UserInputType == Enum.UserInputType.Touch
 end
 
+local function containsPoint(object, point)
+    local position, size = object.AbsolutePosition, object.AbsoluteSize
+    return point.X >= position.X and point.X < position.X + size.X
+        and point.Y >= position.Y and point.Y < position.Y + size.Y
+end
+
 local function bindButtonFeedback(button, idleColor)
-    local hovering, focused, active = false, false, false
+    local hovering, active = false, false
     local releaseConnection, transition
     local function render(immediate)
         local pressed = releaseConnection ~= nil
         local background = pressed and Theme.ElementPressed
             or active and Theme.TabActive
-            or (hovering or focused) and Theme.ElementHover or idleColor
-        local border = (pressed or focused or active) and Theme.Accent
+            or hovering and Theme.ElementHover or idleColor
+        local border = (pressed or active) and Theme.Accent
             or hovering and Theme.BorderHover or Theme.Border
         if transition then transition:Cancel(); transition = nil end
         if immediate or GuiService.ReducedMotionEnabled then
@@ -173,15 +179,13 @@ local function bindButtonFeedback(button, idleColor)
         render(immediate)
     end
     local function reset()
-        hovering, focused = false, false
+        hovering = false
         release(true)
     end
     button.MouseEnter:Connect(function() hovering = true; render() end)
     button.MouseLeave:Connect(function() hovering = false; release() end)
-    button.SelectionGained:Connect(function() focused = true; render() end)
-    button.SelectionLost:Connect(function() focused = false; release() end)
     button.InputBegan:Connect(function(input)
-        if releaseConnection or not isPointerPress(input) and input.KeyCode ~= Enum.KeyCode.ButtonA then return end
+        if releaseConnection or not isPointerPress(input) then return end
         releaseConnection = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End
                 or input.UserInputState == Enum.UserInputState.Cancel then release() end
@@ -216,8 +220,8 @@ local function bindActivation(library, button, callback)
     library._activationHandlers[button] = activate
     button.Destroying:Connect(function() library._activationHandlers[button] = nil end)
     return button.Activated:Connect(function(input, ...)
-        if input and isPointerPress(input) and isVisible(library, button) and button.Selectable then
-            GuiService.SelectedObject = button
+        if input and isPointerPress(input) and isVisible(library, button) then
+            library:_SetPointerOrigin(button)
         end
         activate(input, ...)
     end)
@@ -244,19 +248,20 @@ local function revealSelection(frame, object, axis)
     frame.CanvasPosition = axis == "X" and Vector2.new(offset, canvas.Y) or Vector2.new(canvas.X, offset)
 end
 
-local function stepFocus(targets, direction, focused, controlCanvas)
+local function stepFocus(library, targets, direction, focused, controlCanvas)
     if #targets == 0 then return end
-    local index = table.find(targets, focused or GuiService.SelectedObject) or (direction > 0 and 0 or 1)
+    local index = table.find(targets, focused or library._focusedControl or library._pointerOrigin) or (direction > 0 and 0 or 1)
     local target = targets[(index - 1 + direction) % #targets + 1]
     if focused and focused ~= target then focused:ReleaseFocus() end
     if controlCanvas then revealSelection(controlCanvas, target, "Y") end
-    GuiService.SelectedObject = target
+    library:_SetControlFocus(target)
     if not controlCanvas and target ~= focused and target:IsA("TextBox") then target:CaptureFocus() end
     return target
 end
 
 return {
     isPointerPress = isPointerPress,
+    containsPoint = containsPoint,
     bindButtonFeedback = bindButtonFeedback,
     isVisible = isVisible,
     bindActivation = bindActivation,
@@ -636,6 +641,7 @@ function Config:Destroy()
     if self.Destroyed or self._destroying then return end
     self._destroying = true
     self:_CancelInteractions()
+    self:_ClearNavigation()
     if self.AutoSave and not self._autoSaveBlocked and (self._saveTask or self._configDirty) then
         if self._configBusy == "load" then
             self._flushOnDestroy = true
@@ -652,7 +658,6 @@ end
 return Config
 end function __DARKLUA_BUNDLE_MODULES.d():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.d if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.d=v end return v.c end end do local function __modImpl()
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Style = __DARKLUA_BUNDLE_MODULES.b()
 local Theme = Style.Theme
@@ -664,11 +669,50 @@ local stepFocus = Input.stepFocus
 
 local Focus = {}
 
+local navigationWindow
+
+local function renderControlFocus(library, object)
+    local outline = object:FindFirstChild("FocusOutline")
+    if outline then
+        outline.Enabled = library._focusedControl == object or object:IsA("TextBox") and object:IsFocused()
+    end
+end
+
+function Focus:_SetControlFocus(object)
+    if object then
+        self:_ClaimNavigation()
+        self._pointerOrigin = nil
+    end
+    local previous = self._focusedControl
+    if previous == object then return end
+    self._focusedControl = object
+    if previous then renderControlFocus(self, previous) end
+    if object then renderControlFocus(self, object) end
+end
+
+function Focus:_ClaimNavigation()
+    if navigationWindow == self then return end
+    if navigationWindow then navigationWindow:_ClearNavigation() end
+    navigationWindow = self
+end
+
+function Focus:_ClearNavigation()
+    if navigationWindow == self then navigationWindow = nil end
+    self._pointerOrigin = nil
+    self:_SetControlFocus(nil)
+end
+
+function Focus:_SetPointerOrigin(object)
+    self:_ClaimNavigation()
+    self:_SetControlFocus(nil)
+    self._pointerOrigin = object
+end
+
 function Focus:_FocusStep(direction, focused, controlsOnly)
     local targets = {}
     if not controlsOnly then
         for _, tab in ipairs(self.tabs) do
-            if tab.button.Selectable and isVisible(self, tab.button) then
+            if isVisible(self, tab.button) then
                 table.insert(targets, tab.button)
             end
         end
@@ -682,7 +726,7 @@ function Focus:_FocusStep(direction, focused, controlsOnly)
                     local objects = element.Instance:GetDescendants()
                     table.insert(objects, 1, element.Instance)
                     for _, object in ipairs(objects) do
-                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false
+                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and not object:GetAttribute("__uiSkipFocus")
                             and isVisible(self, object) then
                             table.insert(targets, object)
                         end
@@ -692,7 +736,11 @@ function Focus:_FocusStep(direction, focused, controlsOnly)
             break
         end
     end
-    return stepFocus(targets, direction, focused, controlCanvas)
+    local target = stepFocus(self, targets, direction, focused, controlCanvas)
+    for _, tab in ipairs(self.tabs) do
+        if tab.button == target then tab:_RevealButton(); break end
+    end
+    return target
 end
 
 function Focus:_StepTab(direction)
@@ -701,11 +749,76 @@ function Focus:_StepTab(direction)
             local nextTab = self.tabs[(index - 1 + direction) % #self.tabs + 1]
             if self:SwitchTab(nextTab.name) then
                 revealSelection(self.TabContainer, nextTab.button, "X")
-                GuiService.SelectedObject = nextTab.button
+                self:_SetControlFocus(nextTab.button)
                 return true
             end
         end
     end
+end
+
+function Focus:_HandleInput(input, gameProcessed, visibilityKey)
+    if self.Destroyed or not self.ScreenGui.Enabled then return end
+    if Input.isPointerPress(input) then
+        if navigationWindow == self then
+            if self.MainFrame.Visible and Input.containsPoint(self.MainFrame, input.Position) then
+                self:_SetControlFocus(nil)
+                self._pointerOrigin = nil
+            else
+                self:_ClearNavigation()
+            end
+        end
+        return
+    end
+    if self._closeDropdown or self._cancelKeybind then return end
+
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused and not focused:IsDescendantOf(self.MainFrame) then return end
+    if gameProcessed and not focused then return end
+
+    local key = input.KeyCode
+    local ownsNavigation = navigationWindow == self
+    if self.MainFrame.Visible then
+        if key == Enum.KeyCode.Tab and (focused or ownsNavigation) then
+            return self:_FocusStep(Input.focusDirection(), focused)
+        end
+        if key == Enum.KeyCode.ButtonSelect and not focused and (ownsNavigation or not navigationWindow) then
+            if ownsNavigation then
+                self:_ClearNavigation()
+                return true
+            end
+            return self:_StepTab(0)
+        end
+        if (key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB) and (focused or ownsNavigation) then
+            self:_ClearNavigation()
+            if focused then focused:ReleaseFocus() end
+            return true
+        end
+        if ownsNavigation and not focused then
+            if key == Enum.KeyCode.Left or key == Enum.KeyCode.Right
+                or key == Enum.KeyCode.DPadLeft or key == Enum.KeyCode.DPadRight then
+                local previous = key == Enum.KeyCode.Left or key == Enum.KeyCode.DPadLeft
+                return self:_StepTab(previous and -1 or 1)
+            elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down
+                or key == Enum.KeyCode.DPadUp or key == Enum.KeyCode.DPadDown then
+                local previous = key == Enum.KeyCode.Up or key == Enum.KeyCode.DPadUp
+                return self:_FocusStep(previous and -1 or 1, nil, true)
+            end
+            local selected = self._focusedControl or self._pointerOrigin
+            local enter = key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.ButtonA
+            if selected and isVisible(self, selected) and (enter or key == Enum.KeyCode.Space) then
+                local activate = self._activationHandlers and self._activationHandlers[selected]
+                if activate then
+                    activate()
+                    return true
+                end
+                if enter and selected:IsA("TextBox") then
+                    selected:CaptureFocus()
+                    return true
+                end
+            end
+        end
+    end
+    if not focused and key == visibilityKey then self.MainFrame.Visible = not self.MainFrame.Visible end
 end
 
 function Focus:_HideTooltip()
@@ -715,19 +828,23 @@ function Focus:_HideTooltip()
 end
 
 function Focus:_ReleaseElementFocus(element)
-    local selected = GuiService.SelectedObject
-    if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
-        GuiService.SelectedObject = nil
+    local instance = element.Instance
+    local selected = self._focusedControl
+    if selected and (selected == instance or selected:IsDescendantOf(instance)) then
+        self:_SetControlFocus(nil)
     end
+    local origin = self._pointerOrigin
+    if origin and (origin == instance or origin:IsDescendantOf(instance)) then self._pointerOrigin = nil end
     local focused = UserInputService:GetFocusedTextBox()
-    if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
+    if focused and (focused == instance or focused:IsDescendantOf(instance)) then focused:ReleaseFocus() end
     self:_HideTooltip()
 end
 
 function Focus:_DecorateObject(object)
+    -- Roblox routes movement keys to native selection. Keep UI focus local.
+    if object:IsA("GuiObject") then object.Selectable = false end
     local isTextBox = object:IsA("TextBox")
     if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or isTextBox) then
-        object.Selectable = true
         local outline = Instance.new("UIStroke")
         outline.Name = "FocusOutline"
         outline.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -735,21 +852,20 @@ function Focus:_DecorateObject(object)
         outline.Thickness = 1
         outline.Enabled = false
         outline.Parent = object
-        local function renderFocus()
-            outline.Enabled = GuiService.SelectedObject == object or isTextBox and object:IsFocused()
-        end
-        object.SelectionGained:Connect(renderFocus)
-        object.SelectionLost:Connect(renderFocus)
+        object.Destroying:Connect(function()
+            if self._focusedControl == object then self:_SetControlFocus(nil) end
+            if self._pointerOrigin == object then self._pointerOrigin = nil end
+        end)
         if isTextBox then
             object.Focused:Connect(function()
-                if isVisible(self, object) then GuiService.SelectedObject = object end
-                renderFocus()
+                if isVisible(self, object) then self:_ClaimNavigation() end
+                renderControlFocus(self, object)
             end)
             object.FocusLost:Connect(function(submitted)
-                if submitted and not self._closeDropdown and not GuiService.SelectedObject and isVisible(self, object) then
-                    GuiService.SelectedObject = object
+                if submitted and not self._closeDropdown and isVisible(self, object) then
+                    self:_SetControlFocus(object)
                 end
-                renderFocus()
+                renderControlFocus(self, object)
             end)
         end
     end
@@ -1603,7 +1719,6 @@ end
 return Range
 end function __DARKLUA_BUNDLE_MODULES.i():typeof(__modImpl())local v=__DARKLUA_BUNDLE_MODULES.cache.i if not v then v={c=__modImpl()}__DARKLUA_BUNDLE_MODULES.cache.i=v end return v.c end end do local function __modImpl()
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Element = __DARKLUA_BUNDLE_MODULES.g()
 local dispatchCallback = Element.dispatchCallback
@@ -1618,6 +1733,7 @@ local bindButtonFeedback = Input.bindButtonFeedback
 local bindActivation = Input.bindActivation
 local isVisible = Input.isVisible
 local isPointerPress = Input.isPointerPress
+local containsPoint = Input.containsPoint
 local focusDirection = Input.focusDirection
 local stepFocus = Input.stepFocus
 local Util = __DARKLUA_BUNDLE_MODULES.a()
@@ -1735,11 +1851,6 @@ return function(self, args)
     dropdown.Visible = false
     dropdown.Active = true
     dropdown.ClipsDescendants = true
-    dropdown.SelectionGroup = true
-    dropdown.SelectionBehaviorUp = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorDown = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorLeft = Enum.SelectionBehavior.Stop
-    dropdown.SelectionBehaviorRight = Enum.SelectionBehavior.Stop
     dropdown.ZIndex = 50
 
     local scrollFrame = Instance.new("ScrollingFrame")
@@ -1749,6 +1860,7 @@ return function(self, args)
     scrollFrame.Position = UDim2.new(0, 0, 0, headerHeight)
     scrollFrame.Size = UDim2.new(1, 0, 1, -headerHeight - footerHeight)
     scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+    scrollFrame.Selectable = false
     scrollFrame.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
     scrollFrame.ScrollBarThickness = 4
     scrollFrame.ScrollBarImageColor3 = Theme.BorderHover
@@ -1866,7 +1978,7 @@ return function(self, args)
     local function focusOption(index, keepSelection)
         setOptionHighlight(table.find(visibleIndices, index) and index or visibleIndices[1], nil)
         if not keepSelection and not search:IsFocused() then
-            GuiService.SelectedObject = activeIndex and optionButtons[activeIndex].Button or search
+            self.library:_SetControlFocus(activeIndex and optionButtons[activeIndex].Button or search)
         end
         if not activeIndex then return end
         local top = (table.find(visibleIndices, activeIndex) - 1) * optionHeight
@@ -1959,8 +2071,9 @@ return function(self, args)
         isOpen = false
         setOptionHighlight(nil, nil)
         if search:IsFocused() then search:ReleaseFocus() end
-        if GuiService.SelectedObject and GuiService.SelectedObject:IsDescendantOf(overlay) then
-            GuiService.SelectedObject = isVisible(self.library, button) and button or nil
+        local focused = self.library._focusedControl
+        if focused and focused:IsDescendantOf(overlay) then
+            self.library:_SetControlFocus(isVisible(self.library, button) and button or nil)
         end
         dropdown.Visible = false
         overlay.Visible = false
@@ -2030,9 +2143,6 @@ return function(self, args)
         })
 
         self.library:_DecorateObject(optionButton)
-        optionButton.SelectionGained:Connect(function()
-            if activeIndex ~= index then focusOption(index) end
-        end)
         optionButton.MouseEnter:Connect(function()
             setOptionHighlight(activeIndex, index)
         end)
@@ -2080,7 +2190,7 @@ return function(self, args)
     end
 
     local function rebuildOptionButtons()
-        local selectedObject = GuiService.SelectedObject
+        local selectedObject = self.library._focusedControl
         local hadOptionFocus = selectedObject and selectedObject:IsDescendantOf(scrollFrame)
         for _, item in ipairs(optionButtons) do
             item.Button:Destroy()
@@ -2117,7 +2227,7 @@ return function(self, args)
 
     outsideButton.Activated:Connect(closeDropdown)
 
-    local function openDropdown()
+    local function openDropdown(keyboard)
         if isOpen then return end
         if self.library._cancelKeybind then self.library._cancelKeybind() end
         if self.library._closeDropdown then self.library._closeDropdown() end
@@ -2130,18 +2240,17 @@ return function(self, args)
             local key = input.KeyCode
             if isPointerPress(input) then
                 -- The overlay handles clicks inside the window.
-                local x, y = input.Position.X, input.Position.Y
-                local main = self.library.MainFrame
-                local position, size = main.AbsolutePosition, main.AbsoluteSize
-                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
-                    closeDropdown()
-                end
+                if not containsPoint(self.library.MainFrame, input.Position) then closeDropdown() end
                 return
             end
             local focused = UserInputService:GetFocusedTextBox()
-            local selectedObject = GuiService.SelectedObject
-            if focused ~= search and (focused or not selectedObject
-                or not selectedObject:IsDescendantOf(dropdown) or not isVisible(self.library, selectedObject)) then return end
+            local selectedObject = self.library._focusedControl
+            local hasFocus = selectedObject and selectedObject:IsDescendantOf(dropdown)
+                and isVisible(self.library, selectedObject)
+            local openedByPointer = self.library._pointerOrigin == button
+            if focused and focused ~= search then return end
+            if gameProcessed and focused ~= search then return end
+            if not focused and not hasFocus and not openedByPointer then return end
             self.library._capturedInput = input
             if key == Enum.KeyCode.Escape and focused == search then
                 search:ReleaseFocus()
@@ -2153,11 +2262,14 @@ return function(self, args)
                 local targets = {search}
                 if activeIndex then table.insert(targets, optionButtons[activeIndex].Button) end
                 for _, bulk in ipairs(bulkButtons) do table.insert(targets, bulk) end
-                stepFocus(targets, focusDirection(), focused)
+                stepFocus(self.library, targets, focusDirection(), focused)
                 return
             end
-            if gameProcessed and focused ~= search then return end
-            if multiSelect and not focused and key == Enum.KeyCode.A
+            if key == Enum.KeyCode.ButtonSelect and not focused then
+                focusOption(activeIndex)
+                return
+            end
+            if multiSelect and hasFocus and not focused and key == Enum.KeyCode.A
                 and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
                 bulkSelect(UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift))
             elseif key == Enum.KeyCode.Down or key == Enum.KeyCode.DPadDown then
@@ -2170,7 +2282,8 @@ return function(self, args)
                 focusOption(visibleIndices[1])
             elseif key == Enum.KeyCode.End then
                 focusOption(visibleIndices[#visibleIndices])
-            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.Space) and not focused then
+            elseif (key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter
+                or key == Enum.KeyCode.Space or key == Enum.KeyCode.ButtonA) and hasFocus and not focused then
                 if selectedObject == search then
                     search:CaptureFocus()
                 elseif table.find(bulkButtons, selectedObject) then
@@ -2184,7 +2297,7 @@ return function(self, args)
         if not isOpen then return end
         overlay.Visible = true
         dropdown.Visible = true
-        focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1])
+        focusOption(table.find(options, selectionOrder[1]) or visibleIndices[1], not keyboard)
         arrow.Text = "^"
         arrow.TextColor3 = Theme.Accent
         setActiveFeedback(true)
@@ -2199,7 +2312,7 @@ return function(self, args)
         if isOpen then
             closeDropdown()
         else
-            openDropdown()
+            openDropdown(self.library._focusedControl == button)
         end
     end)
 
@@ -2663,7 +2776,6 @@ function Tabs:CreateTab(args)
     tab.button.TextTruncate = Enum.TextTruncate.AtEnd
     self:_DecorateObject(tab.button)
     tab._resetFeedback, tab._setActiveFeedback = bindButtonFeedback(tab.button, Theme.Tab)
-    tab.button.SelectionGained:Connect(function() tab:_RevealButton() end)
     self._tabOrder = (self._tabOrder or 0) + 1
     tab.button.LayoutOrder = self._tabOrder
     tab.button.ZIndex = 3
@@ -2683,6 +2795,7 @@ function Tabs:CreateTab(args)
     tab.content.BorderSizePixel = 0
     tab.content.Size = UDim2.new(1, 0, 1, 0)
     tab.content.ScrollingDirection = Enum.ScrollingDirection.Y
+    tab.content.Selectable = false
     tab.content.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
     tab.content.ScrollBarThickness = 4
     tab.content.ScrollBarImageColor3 = Theme.BorderHover
@@ -2740,6 +2853,12 @@ function Tabs:SwitchTab(name)
     if not nextTab then return false end
     if self.currentTab == name then return true end
     self:_CancelInteractions()
+    local focused = self._focusedControl
+    if focused and focused.Parent == self.TabContainer and focused ~= nextTab.button then
+        self:_SetControlFocus(nil)
+    end
+    local origin = self._pointerOrigin
+    if origin and origin.Parent == self.TabContainer and origin ~= nextTab.button then self._pointerOrigin = nil end
     self.currentTab = name
     for _, tab in ipairs(self.tabs) do
         local active = tab == nextTab
@@ -2757,7 +2876,6 @@ end function __DARKLUA_BUNDLE_MODULES.m():typeof(__modImpl())local v=__DARKLUA_B
 
 
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Style = __DARKLUA_BUNDLE_MODULES.b()
 local Theme = Style.Theme
@@ -2769,7 +2887,6 @@ local Input = __DARKLUA_BUNDLE_MODULES.c()
 local bindButtonFeedback = Input.bindButtonFeedback
 local isPointerPress = Input.isPointerPress
 local isVisible = Input.isVisible
-local focusDirection = Input.focusDirection
 local Util = __DARKLUA_BUNDLE_MODULES.a()
 local finiteNumber = Util.finiteNumber
 local getEnvFunction = Util.getEnvFunction
@@ -2948,7 +3065,6 @@ function UILibrary.new(args)
     self.MainFrame.Position = args.Position or UDim2.new(0, 100, 0, 100)
     self.MainFrame.Size = args.Size or UDim2.new(0, 600, 0, 400)
     self.MainFrame.Visible = true
-    self.MainFrame.Active = true
     self.MainFrame.ClipsDescendants = true
     self.SizeConstraint = Instance.new("UISizeConstraint")
     self.SizeConstraint.Parent = self.MainFrame
@@ -3007,6 +3123,7 @@ function UILibrary.new(args)
     self.TabContainer.Size = UDim2.new(1, 0, 0, TAB_HEIGHT)
     self.TabContainer.ClipsDescendants = true
     self.TabContainer.Active = true
+    self.TabContainer.Selectable = false
     self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
     self.TabContainer.ScrollBarThickness = self.TabScrollBarThickness
     self.TabContainer.ScrollBarImageColor3 = Theme.BorderHover
@@ -3086,16 +3203,18 @@ function UILibrary.new(args)
         stopGestures()
         self:_CancelInteractions()
         self._capturedInput = nil
-        local selected = GuiService.SelectedObject
-        if selected and selected:IsDescendantOf(self.MainFrame) then GuiService.SelectedObject = nil end
+        self:_ClearNavigation()
         for _, tab in ipairs(self.tabs) do tab._resetFeedback() end
         resetResizeFeedback()
     end
+    self.MainFrame.InputBegan:Connect(function(input)
+        if isPointerPress(input) and isVisible(self, self.MainFrame) then self:_ClaimNavigation() end
+    end)
     self.TitleBar.Active = true
     self.TitleBar.InputBegan:Connect(function(input)
         if dragging or resizing or not isPointerPress(input) or not isVisible(self, self.TitleBar) then return end
         for _, tab in ipairs(self.tabs) do
-            if tab.name == self.currentTab then GuiService.SelectedObject = tab.button; break end
+            if tab.name == self.currentTab then self:_SetPointerOrigin(tab.button); break end
         end
         dragging = true
         pointer, dragStart, startPos = input, input.Position, self.MainFrame.Position
@@ -3130,51 +3249,9 @@ function UILibrary.new(args)
         if input == pointer then stopGestures() end
     end))
     table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
+    local visibilityKey = args.KeyCode or Enum.KeyCode.KeypadZero
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if self.Destroyed or not self.ScreenGui.Enabled then return end
-        local selected = GuiService.SelectedObject
-        if isPointerPress(input) then
-            if selected and selected:IsDescendantOf(self.MainFrame) then
-                local position, size = self.MainFrame.AbsolutePosition, self.MainFrame.AbsoluteSize
-                local x, y = input.Position.X, input.Position.Y
-                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
-                    GuiService.SelectedObject = nil
-                end
-            end
-            return
-        end
-        if self._closeDropdown or self._cancelKeybind or self._capturedInput == input then return end
-        local focused = UserInputService:GetFocusedTextBox()
-        local key = input.KeyCode
-        if focused and not focused:IsDescendantOf(self.MainFrame) then return end
-        if key == Enum.KeyCode.Tab and self.MainFrame.Visible then
-            if (focused or not selected or selected:IsDescendantOf(self.MainFrame))
-                and self:_FocusStep(focusDirection(), focused) then
-                self._capturedInput = input
-            end
-            return
-        end
-        if gameProcessed or focused then return end
-        if selected and selected:IsDescendantOf(self.MainFrame) and isVisible(self, selected) then
-            local enter = key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter
-            if key == Enum.KeyCode.Left or key == Enum.KeyCode.Right then
-                if self:_StepTab(key == Enum.KeyCode.Left and -1 or 1) then self._capturedInput = input end
-                return
-            elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down then
-                if self:_FocusStep(key == Enum.KeyCode.Up and -1 or 1, nil, true) then self._capturedInput = input end
-                return
-            elseif enter and selected:IsA("TextBox") then
-                self._capturedInput = input
-                selected:CaptureFocus()
-                return
-            elseif enter or key == Enum.KeyCode.Space then
-                local activate = self._activationHandlers and self._activationHandlers[selected]
-                if activate then self._capturedInput = input; activate(); return end
-            end
-        end
-        if key == (args.KeyCode or Enum.KeyCode.KeypadZero) then
-            self.MainFrame.Visible = not self.MainFrame.Visible
-        end
+        if self:_HandleInput(input, gameProcessed, visibilityKey) then self._capturedInput = input end
     end))
     self.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         if not self.MainFrame.Visible then cancelWindowInteractions() end

@@ -1,5 +1,4 @@
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Style = require("./style")
 local Theme = Style.Theme
@@ -11,11 +10,50 @@ local stepFocus = Input.stepFocus
 
 local Focus = {}
 
+local navigationWindow
+
+local function renderControlFocus(library, object)
+    local outline = object:FindFirstChild("FocusOutline")
+    if outline then
+        outline.Enabled = library._focusedControl == object or object:IsA("TextBox") and object:IsFocused()
+    end
+end
+
+function Focus:_SetControlFocus(object)
+    if object then
+        self:_ClaimNavigation()
+        self._pointerOrigin = nil
+    end
+    local previous = self._focusedControl
+    if previous == object then return end
+    self._focusedControl = object
+    if previous then renderControlFocus(self, previous) end
+    if object then renderControlFocus(self, object) end
+end
+
+function Focus:_ClaimNavigation()
+    if navigationWindow == self then return end
+    if navigationWindow then navigationWindow:_ClearNavigation() end
+    navigationWindow = self
+end
+
+function Focus:_ClearNavigation()
+    if navigationWindow == self then navigationWindow = nil end
+    self._pointerOrigin = nil
+    self:_SetControlFocus(nil)
+end
+
+function Focus:_SetPointerOrigin(object)
+    self:_ClaimNavigation()
+    self:_SetControlFocus(nil)
+    self._pointerOrigin = object
+end
+
 function Focus:_FocusStep(direction, focused, controlsOnly)
     local targets = {}
     if not controlsOnly then
         for _, tab in ipairs(self.tabs) do
-            if tab.button.Selectable and isVisible(self, tab.button) then
+            if isVisible(self, tab.button) then
                 table.insert(targets, tab.button)
             end
         end
@@ -29,7 +67,7 @@ function Focus:_FocusStep(direction, focused, controlsOnly)
                     local objects = element.Instance:GetDescendants()
                     table.insert(objects, 1, element.Instance)
                     for _, object in ipairs(objects) do
-                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and object.Selectable ~= false
+                        if (object:IsA("GuiButton") or object:IsA("TextBox")) and not object:GetAttribute("__uiSkipFocus")
                             and isVisible(self, object) then
                             table.insert(targets, object)
                         end
@@ -39,7 +77,11 @@ function Focus:_FocusStep(direction, focused, controlsOnly)
             break
         end
     end
-    return stepFocus(targets, direction, focused, controlCanvas)
+    local target = stepFocus(self, targets, direction, focused, controlCanvas)
+    for _, tab in ipairs(self.tabs) do
+        if tab.button == target then tab:_RevealButton(); break end
+    end
+    return target
 end
 
 function Focus:_StepTab(direction)
@@ -48,11 +90,76 @@ function Focus:_StepTab(direction)
             local nextTab = self.tabs[(index - 1 + direction) % #self.tabs + 1]
             if self:SwitchTab(nextTab.name) then
                 revealSelection(self.TabContainer, nextTab.button, "X")
-                GuiService.SelectedObject = nextTab.button
+                self:_SetControlFocus(nextTab.button)
                 return true
             end
         end
     end
+end
+
+function Focus:_HandleInput(input, gameProcessed, visibilityKey)
+    if self.Destroyed or not self.ScreenGui.Enabled then return end
+    if Input.isPointerPress(input) then
+        if navigationWindow == self then
+            if self.MainFrame.Visible and Input.containsPoint(self.MainFrame, input.Position) then
+                self:_SetControlFocus(nil)
+                self._pointerOrigin = nil
+            else
+                self:_ClearNavigation()
+            end
+        end
+        return
+    end
+    if self._closeDropdown or self._cancelKeybind then return end
+
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused and not focused:IsDescendantOf(self.MainFrame) then return end
+    if gameProcessed and not focused then return end
+
+    local key = input.KeyCode
+    local ownsNavigation = navigationWindow == self
+    if self.MainFrame.Visible then
+        if key == Enum.KeyCode.Tab and (focused or ownsNavigation) then
+            return self:_FocusStep(Input.focusDirection(), focused)
+        end
+        if key == Enum.KeyCode.ButtonSelect and not focused and (ownsNavigation or not navigationWindow) then
+            if ownsNavigation then
+                self:_ClearNavigation()
+                return true
+            end
+            return self:_StepTab(0)
+        end
+        if (key == Enum.KeyCode.Escape or key == Enum.KeyCode.ButtonB) and (focused or ownsNavigation) then
+            self:_ClearNavigation()
+            if focused then focused:ReleaseFocus() end
+            return true
+        end
+        if ownsNavigation and not focused then
+            if key == Enum.KeyCode.Left or key == Enum.KeyCode.Right
+                or key == Enum.KeyCode.DPadLeft or key == Enum.KeyCode.DPadRight then
+                local previous = key == Enum.KeyCode.Left or key == Enum.KeyCode.DPadLeft
+                return self:_StepTab(previous and -1 or 1)
+            elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down
+                or key == Enum.KeyCode.DPadUp or key == Enum.KeyCode.DPadDown then
+                local previous = key == Enum.KeyCode.Up or key == Enum.KeyCode.DPadUp
+                return self:_FocusStep(previous and -1 or 1, nil, true)
+            end
+            local selected = self._focusedControl or self._pointerOrigin
+            local enter = key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter or key == Enum.KeyCode.ButtonA
+            if selected and isVisible(self, selected) and (enter or key == Enum.KeyCode.Space) then
+                local activate = self._activationHandlers and self._activationHandlers[selected]
+                if activate then
+                    activate()
+                    return true
+                end
+                if enter and selected:IsA("TextBox") then
+                    selected:CaptureFocus()
+                    return true
+                end
+            end
+        end
+    end
+    if not focused and key == visibilityKey then self.MainFrame.Visible = not self.MainFrame.Visible end
 end
 
 function Focus:_HideTooltip()
@@ -62,19 +169,23 @@ function Focus:_HideTooltip()
 end
 
 function Focus:_ReleaseElementFocus(element)
-    local selected = GuiService.SelectedObject
-    if selected and (selected == element.Instance or selected:IsDescendantOf(element.Instance)) then
-        GuiService.SelectedObject = nil
+    local instance = element.Instance
+    local selected = self._focusedControl
+    if selected and (selected == instance or selected:IsDescendantOf(instance)) then
+        self:_SetControlFocus(nil)
     end
+    local origin = self._pointerOrigin
+    if origin and (origin == instance or origin:IsDescendantOf(instance)) then self._pointerOrigin = nil end
     local focused = UserInputService:GetFocusedTextBox()
-    if focused and focused:IsDescendantOf(element.Instance) then focused:ReleaseFocus() end
+    if focused and (focused == instance or focused:IsDescendantOf(instance)) then focused:ReleaseFocus() end
     self:_HideTooltip()
 end
 
 function Focus:_DecorateObject(object)
+    -- Roblox routes movement keys to native selection. Keep UI focus local.
+    if object:IsA("GuiObject") then object.Selectable = false end
     local isTextBox = object:IsA("TextBox")
     if not object:GetAttribute("__uiSkipFocus") and (object:IsA("GuiButton") or isTextBox) then
-        object.Selectable = true
         local outline = Instance.new("UIStroke")
         outline.Name = "FocusOutline"
         outline.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -82,21 +193,20 @@ function Focus:_DecorateObject(object)
         outline.Thickness = 1
         outline.Enabled = false
         outline.Parent = object
-        local function renderFocus()
-            outline.Enabled = GuiService.SelectedObject == object or isTextBox and object:IsFocused()
-        end
-        object.SelectionGained:Connect(renderFocus)
-        object.SelectionLost:Connect(renderFocus)
+        object.Destroying:Connect(function()
+            if self._focusedControl == object then self:_SetControlFocus(nil) end
+            if self._pointerOrigin == object then self._pointerOrigin = nil end
+        end)
         if isTextBox then
             object.Focused:Connect(function()
-                if isVisible(self, object) then GuiService.SelectedObject = object end
-                renderFocus()
+                if isVisible(self, object) then self:_ClaimNavigation() end
+                renderControlFocus(self, object)
             end)
             object.FocusLost:Connect(function(submitted)
-                if submitted and not self._closeDropdown and not GuiService.SelectedObject and isVisible(self, object) then
-                    GuiService.SelectedObject = object
+                if submitted and not self._closeDropdown and isVisible(self, object) then
+                    self:_SetControlFocus(object)
                 end
-                renderFocus()
+                renderControlFocus(self, object)
             end)
         end
     end

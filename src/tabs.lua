@@ -159,7 +159,6 @@ function Tabs:CreateTab(args)
     tab.button.TextTruncate = Enum.TextTruncate.AtEnd
     self:_DecorateObject(tab.button)
     tab._resetFeedback, tab._setActiveFeedback = bindButtonFeedback(tab.button, Theme.Tab)
-    tab.button.SelectionGained:Connect(function() tab:_RevealButton() end)
     self._tabOrder = (self._tabOrder or 0) + 1
     tab.button.LayoutOrder = self._tabOrder
     tab.button.ZIndex = 3
@@ -179,6 +178,7 @@ function Tabs:CreateTab(args)
     tab.content.BorderSizePixel = 0
     tab.content.Size = UDim2.new(1, 0, 1, 0)
     tab.content.ScrollingDirection = Enum.ScrollingDirection.Y
+    tab.content.Selectable = false
     tab.content.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
     tab.content.ScrollBarThickness = 4
     tab.content.ScrollBarImageColor3 = Theme.BorderHover
@@ -236,6 +236,12 @@ function Tabs:SwitchTab(name)
     if not nextTab then return false end
     if self.currentTab == name then return true end
     self:_CancelInteractions()
+    local focused = self._focusedControl
+    if focused and focused.Parent == self.TabContainer and focused ~= nextTab.button then
+        self:_SetControlFocus(nil)
+    end
+    local origin = self._pointerOrigin
+    if origin and origin.Parent == self.TabContainer and origin ~= nextTab.button then self._pointerOrigin = nil end
     self.currentTab = name
     for _, tab in ipairs(self.tabs) do
         local active = tab == nextTab

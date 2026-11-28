@@ -1,7 +1,8 @@
 local Color3 = {fromRGB = function() return {} end}
 local Vector2 = {new = function(x, y) return {X = x, Y = y} end}
 local TweenInfo = {new = function() return {} end}
-local gui = {ReducedMotionEnabled = true}
+local externalSelection = {}
+local gui = {ReducedMotionEnabled = true, SelectedObject = externalSelection}
 local function signal()
     local listeners = {}
     return {
@@ -37,7 +38,7 @@ local UDim2 = {
     fromOffset = function(x, y) return {X = UDim.new(0, x), Y = UDim.new(0, y)} end,
 }
 local deferred = {}
-local task = {defer = function(callback) table.insert(deferred, callback) end}
+local task = {defer = function(callback) table.insert(deferred, callback) end, delay = function() end}
 local shared = {}
 local instances = {}
 local Instance = {}
@@ -51,6 +52,12 @@ local function target(className, parent)
     function object:IsA(class)
         return class == className or class == "GuiObject" and className ~= "ScreenGui"
             or class == "GuiButton" and className == "TextButton"
+    end
+    function object:GetAttribute() return nil end
+    function object:FindFirstChild(name)
+        for _, instance in ipairs(instances) do
+            if rawget(instance, "Parent") == self and instance.Name == name then return instance end
+        end
     end
     function object:GetDescendants()
         if self.Descendants then return self.Descendants end
@@ -87,6 +94,7 @@ function Instance.new(className)
     object.AbsoluteWindowSize = object.AbsoluteSize
     object.AbsoluteContentSize = Vector2.new(0, 0)
     object.CanvasPosition = Vector2.new(0, 0)
+    object.BackgroundTransparency = 0
     function object:SetAttribute(name, value) attributes[name] = value end
     function object:GetAttribute(name) return attributes[name] end
     function object:GetPropertyChangedSignal(name)
@@ -100,7 +108,6 @@ function Instance.new(className)
     end
     function object:ReleaseFocus(submitted)
         input.focused = nil
-        gui.SelectedObject = nil
         self.FocusLost:Fire(submitted == true)
     end
     for _, name in ipairs({"Activated", "MouseEnter", "MouseLeave", "InputBegan", "SelectionGained",
@@ -130,33 +137,32 @@ hidden.Visible = false
 function textbox:CaptureFocus() self.Focused = true end
 function textbox:ReleaseFocus()
     self.Focused = false
-    gui.SelectedObject = nil
 end
 
 local lib = setmetatable({
     ScreenGui = screen,
     currentTab = "Main",
     tabs = {
-        {name = "Main", button = mainTab, elements = {{Instance = textbox}, {Instance = hidden}, {Instance = button}}},
-        {name = "Other", button = otherTab, elements = {}},
+        {name = "Main", button = mainTab, _RevealButton = function() end, elements = {{Instance = textbox}, {Instance = hidden}, {Instance = button}}},
+        {name = "Other", button = otherTab, elements = {}, _RevealButton = function() end},
     },
 }, UI)
 
 lib:_FocusStep(1)
-assert(gui.SelectedObject == mainTab)
+assert(lib._focusedControl == mainTab)
 lib:_FocusStep(1)
-assert(gui.SelectedObject == otherTab)
+assert(lib._focusedControl == otherTab)
 lib:_FocusStep(1)
-assert(gui.SelectedObject == textbox and textbox.Focused)
+assert(lib._focusedControl == textbox and textbox.Focused)
 
 -- Roblox can clear selection on blur. Keep the textbox as the traversal origin.
-gui.SelectedObject = nil
+lib:_SetControlFocus(nil)
 lib:_FocusStep(1, textbox)
-assert(gui.SelectedObject == button and not textbox.Focused)
+assert(lib._focusedControl == button and not textbox.Focused)
 lib:_FocusStep(-1)
-assert(gui.SelectedObject == textbox and textbox.Focused)
+assert(lib._focusedControl == textbox and textbox.Focused)
 lib:_FocusStep(-1, textbox)
-assert(gui.SelectedObject == otherTab and not textbox.Focused)
+assert(lib._focusedControl == otherTab and not textbox.Focused)
 
 lib.MainFrame = Instance.new("Frame")
 lib.MainFrame.Parent = screen
@@ -166,7 +172,7 @@ lib.ContentArea = Instance.new("Frame")
 lib.ContentArea.Parent = lib.MainFrame
 lib.TabScrollBarThickness = 4
 lib.tabs, lib.currentTab = {}, nil
-lib._DecorateObject = function() end
+lib:_ClearNavigation()
 local tab = lib:CreateTab({Name = "Search"})
 local element = tab:Dropdown({Options = {"Alpha", "Beta", "Alphabet"}, Multi = true})
 local trigger = child(element.Instance, "TextButton")
@@ -184,12 +190,13 @@ input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0)
 trigger.Activated:Fire()
 assert(popup.Visible and search.Position.Y.Offset < options.Position.Y.Offset)
+assert(lib._focusedControl == nil and options.Selectable == false)
 
-gui.SelectedObject = mainTab
+lib:_SetControlFocus(mainTab)
 input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0, "Ctrl+A selected options while keyboard focus was outside the dropdown")
 input.InputBegan:Fire({KeyCode = "Tab"})
-assert(gui.SelectedObject == mainTab, "An unfocused dropdown took keyboard focus")
+assert(lib._focusedControl == mainTab, "An unfocused dropdown took keyboard focus")
 
 local popupY, popupHeight = popup.Position.Y.Offset, popup.Size.Y.Offset
 assert(popupY < trigger.AbsolutePosition.Y)
@@ -203,7 +210,7 @@ input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0, "Ctrl+A selected options while editing a search")
 
 input.InputBegan:Fire({KeyCode = "Escape"}, true)
-assert(popup.Visible and not search:IsFocused() and gui.SelectedObject == alpha)
+assert(popup.Visible and not search:IsFocused() and lib._focusedControl == alpha)
 assert(search.Text == "aLPHa" and #element:GetValue() == 0)
 input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 3, "Ctrl+A should work after Escape leaves Search")
@@ -216,12 +223,12 @@ search:GetPropertyChangedSignal("Text"):Fire()
 assert(not alpha.Visible and not alphabet.Visible and not beta.Visible)
 assert(popup.Position.Y.Offset == popupY and popup.Size.Y.Offset == popupHeight)
 input.InputBegan:Fire({KeyCode = "Escape"}, true)
-assert(popup.Visible and not search:IsFocused() and gui.SelectedObject == search)
+assert(popup.Visible and not search:IsFocused() and lib._focusedControl == search)
 search.Text = ""
 search:GetPropertyChangedSignal("Text"):Fire()
 assert(alpha.Visible and alphabet.Visible and beta.Visible)
 
-gui.SelectedObject = alpha
+lib:_SetControlFocus(alpha)
 input.focused = textbox
 input.InputBegan:Fire({KeyCode = "A"})
 assert(#element:GetValue() == 0, "Ctrl+A selected options while editing another textbox")
@@ -258,18 +265,16 @@ local firstTab = first:CreateTab({Name = "First"})
 local secondTab = second:CreateTab({Name = "Second"})
 local firstButton = firstTab:Button().Instance
 local secondButton = secondTab:Button().Instance
-gui.SelectedObject = firstTab.button
+first:_SetControlFocus(firstTab.button)
 input.InputBegan:Fire({KeyCode = "Tab"})
-assert(gui.SelectedObject == firstButton)
-gui.SelectedObject = secondTab.button
+assert(first._focusedControl == firstButton and not second._focusedControl)
+second:_SetControlFocus(secondTab.button)
 input.InputBegan:Fire({KeyCode = "Tab"})
-assert(gui.SelectedObject == secondButton)
-gui.SelectedObject = mainTab
+assert(second._focusedControl == secondButton and not first._focusedControl)
+second:_ClearNavigation()
 input.InputBegan:Fire({KeyCode = "Tab"})
-assert(gui.SelectedObject == mainTab)
-gui.SelectedObject = nil
-input.InputBegan:Fire({KeyCode = "Tab"})
-assert(gui.SelectedObject == firstTab.button or gui.SelectedObject == secondTab.button)
+assert(not first._focusedControl and not second._focusedControl)
+assert(gui.SelectedObject == externalSelection)
 
 local function press(key, processed)
     local event = {KeyCode = key, UserInputType = "Keyboard"}
@@ -294,26 +299,30 @@ choiceTrigger.AbsolutePosition = Vector2.new(310, 330)
 choiceTrigger.AbsoluteSize = Vector2.new(240, 30)
 local choicePopup = child(child(first.MainFrame, "DropdownOverlay"), "DropdownList")
 
-gui.SelectedObject = nil
+assert(not first.MainFrame.Active and not first.TabContainer.Selectable and not firstTab.content.Selectable)
 press("Right")
-assert(first.currentTab == "First" and gui.SelectedObject == nil)
+assert(first.currentTab == "First" and not first._focusedControl)
 local click = {UserInputType = "MouseButton1", Position = Vector2.new(10, 10)}
 firstTab.button.Activated:Fire(click)
-assert(gui.SelectedObject == firstTab.button)
+assert(first._pointerOrigin == firstTab.button and not first._focusedControl)
+assert(not child(firstTab.button, "FocusOutline").Enabled and not firstTab.button.Selectable)
 press("Right", true)
 assert(first.currentTab == "First")
 press("Right")
-assert(first.currentTab == "Controls" and gui.SelectedObject == controls.button)
+assert(first.currentTab == "Controls" and first._focusedControl == controls.button)
 assert(second.currentTab == "Second")
+for _, key in ipairs({"W", "A", "S", "D"}) do press(key) end
+assert(first.currentTab == "Controls" and first._focusedControl == controls.button)
+assert(gui.SelectedObject == externalSelection)
 press("Down")
-assert(gui.SelectedObject == buttonControl)
+assert(first._focusedControl == buttonControl)
 press("Return")
 press("Down")
-assert(gui.SelectedObject == toggle.Instance)
+assert(first._focusedControl == toggle.Instance)
 press("KeypadEnter")
 assert(toggle:GetValue() == true)
 press("Down")
-assert(gui.SelectedObject == entry and not entry:IsFocused())
+assert(first._focusedControl == entry and not entry:IsFocused())
 assert(controls.content.CanvasPosition.Y == 48)
 press("Return")
 assert(entry:IsFocused())
@@ -322,9 +331,9 @@ press("Up")
 assert(first.currentTab == "Controls" and entry:IsFocused())
 entry.Text = "Typed"
 entry:ReleaseFocus(true)
-assert(gui.SelectedObject == entry)
+assert(first._focusedControl == entry)
 press("Down")
-assert(gui.SelectedObject == choiceTrigger)
+assert(first._focusedControl == choiceTrigger)
 press("Return")
 assert(choicePopup.Visible)
 press("Left")
@@ -333,19 +342,28 @@ press("Down")
 press("Return")
 assert(choice:GetValue() == "Two" and not choicePopup.Visible)
 press("Left")
-assert(first.currentTab == "First" and gui.SelectedObject == firstTab.button)
+assert(first.currentTab == "First" and first._focusedControl == firstTab.button)
 press("Left")
-assert(first.currentTab == "Controls" and gui.SelectedObject == controls.button)
+assert(first.currentTab == "Controls" and first._focusedControl == controls.button)
 press("Up")
-assert(gui.SelectedObject == choiceTrigger)
+assert(first._focusedControl == choiceTrigger)
 click.Position = Vector2.new(700, 700)
 input.InputBegan:Fire(click)
 press("Right")
-assert(first.currentTab == "Controls" and gui.SelectedObject == nil)
-gui.SelectedObject = mainTab
+assert(first.currentTab == "Controls" and first._focusedControl == nil)
 press("Down")
 press("Return")
-assert(gui.SelectedObject == mainTab)
+assert(gui.SelectedObject == externalSelection and not first._focusedControl)
+
+press("ButtonSelect")
+assert(first._focusedControl == controls.button or second._focusedControl == secondTab.button)
+press("ButtonB")
+assert(not first._focusedControl and not second._focusedControl)
+
+first:SetBackground(123, 0.4)
+assert(first.BackgroundImage.Image == "rbxassetid://123" and first.BackgroundEnabled and first.ContentArea.BackgroundTransparency == 1)
+first:SetBackgroundEnabled(false)
+assert(not first.BackgroundEnabled and first.ContentArea.BackgroundTransparency == 0)
 
 local repaintCount = 0
 for _, option in ipairs({alpha, beta, alphabet}) do
@@ -366,7 +384,7 @@ for _, option in ipairs({alpha, beta, alphabet}) do
         end
     end
 end
-trigger.Activated:Fire()
+trigger.Activated:Fire({UserInputType = "MouseButton1"})
 local highlighted = alpha.BackgroundColor3
 local idle = beta.BackgroundColor3
 repaintCount = 0
@@ -375,7 +393,7 @@ assert(repaintCount == 2 and alpha.BackgroundColor3 == idle and beta.BackgroundC
 beta.MouseLeave:Fire()
 assert(repaintCount == 4 and alpha.BackgroundColor3 == highlighted and beta.BackgroundColor3 == idle)
 press("Down")
-assert(repaintCount == 6 and gui.SelectedObject == beta and beta.BackgroundColor3 == highlighted)
+assert(repaintCount == 6 and lib._focusedControl == beta and beta.BackgroundColor3 == highlighted)
 press("Escape")
 assert(beta.BackgroundColor3 == idle)
 
@@ -402,5 +420,6 @@ assert(input.InputChanged:Count() == idleListeners)
 
 for _, callback in ipairs(deferred) do callback() end
 assert(buttonClicks == 1 and submitCount == 1)
+assert(gui.SelectedObject == externalSelection)
 
 print("Focus traversal and dropdown checks passed")

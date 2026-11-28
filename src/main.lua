@@ -1,7 +1,6 @@
 -- Edit the source modules here, then rebuild the root main.lua with Darklua.
 
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 
 local Style = require("./style")
 local Theme = Style.Theme
@@ -13,7 +12,6 @@ local Input = require("./input")
 local bindButtonFeedback = Input.bindButtonFeedback
 local isPointerPress = Input.isPointerPress
 local isVisible = Input.isVisible
-local focusDirection = Input.focusDirection
 local Util = require("./util")
 local finiteNumber = Util.finiteNumber
 local getEnvFunction = Util.getEnvFunction
@@ -192,7 +190,6 @@ function UILibrary.new(args)
     self.MainFrame.Position = args.Position or UDim2.new(0, 100, 0, 100)
     self.MainFrame.Size = args.Size or UDim2.new(0, 600, 0, 400)
     self.MainFrame.Visible = true
-    self.MainFrame.Active = true
     self.MainFrame.ClipsDescendants = true
     self.SizeConstraint = Instance.new("UISizeConstraint")
     self.SizeConstraint.Parent = self.MainFrame
@@ -251,6 +248,7 @@ function UILibrary.new(args)
     self.TabContainer.Size = UDim2.new(1, 0, 0, TAB_HEIGHT)
     self.TabContainer.ClipsDescendants = true
     self.TabContainer.Active = true
+    self.TabContainer.Selectable = false
     self.TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
     self.TabContainer.ScrollBarThickness = self.TabScrollBarThickness
     self.TabContainer.ScrollBarImageColor3 = Theme.BorderHover
@@ -330,16 +328,18 @@ function UILibrary.new(args)
         stopGestures()
         self:_CancelInteractions()
         self._capturedInput = nil
-        local selected = GuiService.SelectedObject
-        if selected and selected:IsDescendantOf(self.MainFrame) then GuiService.SelectedObject = nil end
+        self:_ClearNavigation()
         for _, tab in ipairs(self.tabs) do tab._resetFeedback() end
         resetResizeFeedback()
     end
+    self.MainFrame.InputBegan:Connect(function(input)
+        if isPointerPress(input) and isVisible(self, self.MainFrame) then self:_ClaimNavigation() end
+    end)
     self.TitleBar.Active = true
     self.TitleBar.InputBegan:Connect(function(input)
         if dragging or resizing or not isPointerPress(input) or not isVisible(self, self.TitleBar) then return end
         for _, tab in ipairs(self.tabs) do
-            if tab.name == self.currentTab then GuiService.SelectedObject = tab.button; break end
+            if tab.name == self.currentTab then self:_SetPointerOrigin(tab.button); break end
         end
         dragging = true
         pointer, dragStart, startPos = input, input.Position, self.MainFrame.Position
@@ -374,51 +374,9 @@ function UILibrary.new(args)
         if input == pointer then stopGestures() end
     end))
     table.insert(self._connections, UserInputService.WindowFocusReleased:Connect(cancelWindowInteractions))
+    local visibilityKey = args.KeyCode or Enum.KeyCode.KeypadZero
     table.insert(self._connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if self.Destroyed or not self.ScreenGui.Enabled then return end
-        local selected = GuiService.SelectedObject
-        if isPointerPress(input) then
-            if selected and selected:IsDescendantOf(self.MainFrame) then
-                local position, size = self.MainFrame.AbsolutePosition, self.MainFrame.AbsoluteSize
-                local x, y = input.Position.X, input.Position.Y
-                if x < position.X or x >= position.X + size.X or y < position.Y or y >= position.Y + size.Y then
-                    GuiService.SelectedObject = nil
-                end
-            end
-            return
-        end
-        if self._closeDropdown or self._cancelKeybind or self._capturedInput == input then return end
-        local focused = UserInputService:GetFocusedTextBox()
-        local key = input.KeyCode
-        if focused and not focused:IsDescendantOf(self.MainFrame) then return end
-        if key == Enum.KeyCode.Tab and self.MainFrame.Visible then
-            if (focused or not selected or selected:IsDescendantOf(self.MainFrame))
-                and self:_FocusStep(focusDirection(), focused) then
-                self._capturedInput = input
-            end
-            return
-        end
-        if gameProcessed or focused then return end
-        if selected and selected:IsDescendantOf(self.MainFrame) and isVisible(self, selected) then
-            local enter = key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter
-            if key == Enum.KeyCode.Left or key == Enum.KeyCode.Right then
-                if self:_StepTab(key == Enum.KeyCode.Left and -1 or 1) then self._capturedInput = input end
-                return
-            elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down then
-                if self:_FocusStep(key == Enum.KeyCode.Up and -1 or 1, nil, true) then self._capturedInput = input end
-                return
-            elseif enter and selected:IsA("TextBox") then
-                self._capturedInput = input
-                selected:CaptureFocus()
-                return
-            elseif enter or key == Enum.KeyCode.Space then
-                local activate = self._activationHandlers and self._activationHandlers[selected]
-                if activate then self._capturedInput = input; activate(); return end
-            end
-        end
-        if key == (args.KeyCode or Enum.KeyCode.KeypadZero) then
-            self.MainFrame.Visible = not self.MainFrame.Visible
-        end
+        if self:_HandleInput(input, gameProcessed, visibilityKey) then self._capturedInput = input end
     end))
     self.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
         if not self.MainFrame.Visible then cancelWindowInteractions() end
