@@ -214,6 +214,7 @@ function Tabs:CreateTab(args)
     end)
 
     bindActivation(self, tab.button, function()
+        if self.currentTab == name then tab._resetFeedback() end
         self:SwitchTab(name)
     end)
 
@@ -245,6 +246,7 @@ function Tabs:SwitchTab(name)
     self.currentTab = name
     for _, tab in ipairs(self.tabs) do
         local active = tab == nextTab
+        tab._resetFeedback()
         tab.indicator.Visible = active
         tab.content.Visible = active
         tab.button.TextColor3 = active and Theme.Accent or Theme.TextDim

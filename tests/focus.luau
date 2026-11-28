@@ -365,6 +365,28 @@ assert(first.BackgroundImage.Image == "rbxassetid://123" and first.BackgroundEna
 first:SetBackgroundEnabled(false)
 assert(not first.BackgroundEnabled and first.ContentArea.BackgroundTransparency == 0)
 
+local idleTabColor = firstTab.button.BackgroundColor3
+local activeTabColor = controls.button.BackgroundColor3
+firstTab.button.MouseEnter:Fire()
+assert(firstTab.button.BackgroundColor3 ~= idleTabColor)
+firstTab.button.MouseLeave:Fire()
+assert(firstTab.button.BackgroundColor3 == idleTabColor)
+firstTab.button.MouseEnter:Fire()
+first.TabContainer:GetPropertyChangedSignal("CanvasPosition"):Fire()
+assert(firstTab.button.BackgroundColor3 == idleTabColor)
+
+for _, inputType in ipairs({"MouseButton1", "Touch"}) do
+    controls.button.MouseEnter:Fire()
+    local pressTab = {UserInputType = inputType, Changed = signal()}
+    firstTab.button.InputBegan:Fire(pressTab)
+    firstTab.button.Activated:Fire(pressTab)
+    assert(firstTab.indicator.Visible and firstTab.button.BackgroundColor3 == activeTabColor)
+    assert(not controls.indicator.Visible and controls.button.BackgroundColor3 == idleTabColor)
+    assert(not child(firstTab.button, "FocusOutline").Enabled)
+    first:SwitchTab("Controls")
+    assert(firstTab.button.BackgroundColor3 == idleTabColor)
+end
+
 local repaintCount = 0
 for _, option in ipairs({alpha, beta, alphabet}) do
     local mt = getmetatable(option)

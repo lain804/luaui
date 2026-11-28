@@ -2831,6 +2831,7 @@ function Tabs:CreateTab(args)
     end)
 
     bindActivation(self, tab.button, function()
+        if self.currentTab == name then tab._resetFeedback() end
         self:SwitchTab(name)
     end)
 
@@ -2862,6 +2863,7 @@ function Tabs:SwitchTab(name)
     self.currentTab = name
     for _, tab in ipairs(self.tabs) do
         local active = tab == nextTab
+        tab._resetFeedback()
         tab.indicator.Visible = active
         tab.content.Visible = active
         tab.button.TextColor3 = active and Theme.Accent or Theme.TextDim
@@ -3190,6 +3192,11 @@ function UILibrary.new(args)
 
     self.tabs = {}
     self.currentTab = nil
+    local function resetTabFeedback()
+        for _, tab in ipairs(self.tabs) do tab._resetFeedback() end
+    end
+    self.TabContainer.MouseLeave:Connect(resetTabFeedback)
+    self.TabContainer:GetPropertyChangedSignal("CanvasPosition"):Connect(resetTabFeedback)
 
     local dragging, resizing = false, false
     local pointer, dragStart, startPos, resizeStart, startSize
@@ -3204,7 +3211,7 @@ function UILibrary.new(args)
         self:_CancelInteractions()
         self._capturedInput = nil
         self:_ClearNavigation()
-        for _, tab in ipairs(self.tabs) do tab._resetFeedback() end
+        resetTabFeedback()
         resetResizeFeedback()
     end
     self.MainFrame.InputBegan:Connect(function(input)
